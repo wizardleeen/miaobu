@@ -36,13 +36,17 @@ def purge_cdn_cache(self, deployment_id: int, wait_for_completion: bool = False)
 
         project = deployment.project
 
-        # Check if CDN is configured
-        if not settings.aliyun_cdn_domain:
+        # Check if CDN is enabled
+        if not settings.cdn_enabled or not settings.cdn_base_domain:
             # CDN not configured, skip purge
             return {
                 'success': True,
-                'message': 'CDN not configured, skipping cache purge'
+                'message': 'CDN not configured, skipping cache purge',
+                'skipped': True
             }
+
+        # Generate subdomain for this project
+        subdomain = f"{project.slug}.{settings.cdn_base_domain}"
 
         # Log callback
         def log_callback(message: str):
@@ -57,20 +61,34 @@ def purge_cdn_cache(self, deployment_id: int, wait_for_completion: bool = False)
 
         # Initialize CDN service
         cdn_service = CDNService()
+        cdn_service.cdn_domain = subdomain
 
-        # Purge cache for deployment directory
-        log_callback(f"Purging CDN cache for: {project.user_id}/{project.id}/{deployment.commit_sha}/")
+        # Purge cache for project (simple path: /projects/{slug}/)
+        log_callback(f"Purging CDN cache for: projects/{project.slug}/")
+        log_callback(f"CDN subdomain: {subdomain}")
 
-        purge_result = cdn_service.purge_deployment_cache(
-            user_id=project.user_id,
-            project_id=project.id,
-            commit_sha=deployment.commit_sha,
-            wait_for_completion=wait_for_completion
-        )
+        # Purge the entire project directory
+        directory_url = f"https://{subdomain}/"
+
+        purge_result = cdn_service.refresh_directory(directory_url)
 
         if not purge_result['success']:
-            log_callback(f"⚠️  CDN cache purge failed: {purge_result.get('error')}")
-            return purge_result
+            error_msg = purge_result.get('error', '')
+
+            # Check for common CDN configuration errors
+            if 'InvalidDomain.NotFound' in error_msg or 'does not belong to you' in error_msg:
+                log_callback(f"⚠️  CDN domain '{settings.aliyun_cdn_domain}' is not configured in Alibaba Cloud CDN")
+                log_callback(f"   To fix: Add '{settings.aliyun_cdn_domain}' to CDN console or remove ALIYUN_CDN_DOMAIN from .env")
+                log_callback(f"   See CDN_SETUP_GUIDE.md for instructions")
+            else:
+                log_callback(f"⚠️  CDN cache purge failed: {error_msg}")
+
+            # Return success=True to not block deployment
+            return {
+                'success': True,
+                'warning': error_msg,
+                'skipped': True
+            }
 
         log_callback(f"✓ CDN cache purge initiated")
         log_callback(f"  Task ID: {purge_result.get('task_id')}")

@@ -1,4 +1,4 @@
-import docker
+# import docker  # Disabled due to proxy conflicts
 import tempfile
 import shutil
 import subprocess
@@ -8,8 +8,9 @@ from typing import Optional, Callable
 from datetime import datetime
 import hashlib
 import redis
+import json
 
-from ..config import (
+from config import (
     TEMP_DIR, CACHE_DIR, BUILD_TIMEOUT, CLONE_TIMEOUT,
     INSTALL_TIMEOUT, REDIS_URL, LOG_STREAM_PREFIX
 )
@@ -29,9 +30,9 @@ class DockerBuilder:
 
     def __init__(self, deployment_id: int):
         self.deployment_id = deployment_id
-        self.docker_client = docker.from_env()
+        # Note: Using Docker CLI via subprocess instead of docker-py to avoid proxy issues
         self.build_dir: Optional[Path] = None
-        self.container: Optional[docker.models.containers.Container] = None
+        self.container_id: Optional[str] = None
         self.log_callback: Optional[Callable] = None
 
         # Redis for log streaming
@@ -102,11 +103,23 @@ class DockerBuilder:
                 str(self.build_dir / "repo")
             ]
 
+            # Set up proxy environment for git
+            import os
+            env = os.environ.copy()
+            # Use HTTP proxy for GitHub access (uses host.docker.internal for dynamic resolution)
+            http_proxy = 'http://host.docker.internal:8118'
+            env['http_proxy'] = http_proxy
+            env['https_proxy'] = http_proxy
+            env['HTTP_PROXY'] = http_proxy
+            env['HTTPS_PROXY'] = http_proxy
+            self.log(f"Using proxy for git: {http_proxy}")
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=CLONE_TIMEOUT
+                timeout=CLONE_TIMEOUT,
+                env=env
             )
 
             if result.returncode != 0:
@@ -184,35 +197,28 @@ class DockerBuilder:
         self.log("Installing dependencies...")
         self.log(f"Command: {install_command}")
         self.log(f"Node version: {node_version}")
+        self.log(f"Repository directory: {repo_dir.absolute()}")
+
+        # Verify package.json exists
+        package_json = repo_dir / "package.json"
+        if not package_json.exists():
+            self.log(f"ERROR: package.json not found at {package_json}", "ERROR")
+            self.log(f"Directory contents: {list(repo_dir.iterdir())}", "ERROR")
+            raise Exception(f"No package.json found in {repo_dir}")
+        else:
+            self.log(f"✓ Found package.json at {package_json}")
+
+        # Note: We trust the project's lock file for dependency resolution
+        # No need to modify package.json - if it builds locally, it should build here
 
         try:
-            # Check for cached dependencies
+            # TEMPORARILY DISABLE CACHE to ensure clean installs
+            # TODO: Re-enable once pnpm script issues are resolved
             cache_key = None
             cache_restored = False
+            use_cache = False  # Force disable
 
-            if use_cache:
-                # Try different lock files
-                for lock_file in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]:
-                    cache_key = self.get_cache_key(repo_dir, lock_file)
-                    if cache_key:
-                        self.log(f"Cache key from {lock_file}: {cache_key}")
-                        cache_path = CACHE_DIR / cache_key
-
-                        if cache_path.exists():
-                            self.log(f"✓ Cache hit! Restoring node_modules from cache")
-                            # Copy cached node_modules
-                            dest = repo_dir / "node_modules"
-                            if dest.exists():
-                                shutil.rmtree(dest)
-                            shutil.copytree(cache_path, dest)
-                            cache_restored = True
-                            break
-                        else:
-                            self.log(f"Cache miss for key {cache_key}")
-                        break
-
-            if not cache_restored:
-                self.log("No cache available, installing from scratch...")
+            self.log("Cache disabled - installing from scratch...")
 
             # Create and run container for installation
             self.log(f"Creating Docker container with Node {node_version}...")
@@ -220,34 +226,69 @@ class DockerBuilder:
             # Parse install command
             cmd_parts = install_command.split()
 
-            # Run installation in container
-            container = self.docker_client.containers.run(
+            # Prepare the command - install pnpm/yarn if needed
+            final_command = install_command
+            if install_command.startswith("pnpm"):
+                # Install pnpm first using corepack (available in Node 16.13+)
+                # PNPM 10.x requires explicit approval for build scripts
+                # We'll create .npmrc to disable this security check for CI environments
+                # Use Taobao npm mirror for faster downloads in China
+                final_command = (
+                    f"corepack enable && "
+                    f"corepack prepare pnpm@latest --activate && "
+                    f"echo 'enable-pre-post-scripts=true' > .npmrc && "
+                    f"echo 'unsafe-perm=true' >> .npmrc && "
+                    f"echo 'ignore-scripts=false' >> .npmrc && "
+                    f"echo 'registry=https://registry.npmmirror.com' >> .npmrc && "
+                    f"{install_command}"
+                )
+            elif install_command.startswith("yarn"):
+                # Install yarn using corepack
+                # Use Taobao npm mirror for faster downloads in China
+                final_command = (
+                    f"corepack enable && "
+                    f"corepack prepare yarn@stable --activate && "
+                    f"echo 'registry \"https://registry.npmmirror.com\"' > .yarnrc && "
+                    f"{install_command}"
+                )
+            elif install_command.startswith("npm"):
+                # Use Taobao npm mirror for faster downloads in China
+                final_command = (
+                    f"echo 'registry=https://registry.npmmirror.com' > .npmrc && "
+                    f"{install_command}"
+                )
+
+            # Run installation using Docker CLI
+            # Explicitly unset proxy for npm/pnpm to avoid slow downloads
+            docker_cmd = [
+                "docker", "run",
+                "--rm",
+                "-e", "HTTP_PROXY=",
+                "-e", "HTTPS_PROXY=",
+                "-e", "http_proxy=",
+                "-e", "https_proxy=",
+                "-v", f"{repo_dir.absolute()}:/app",
+                "-w", "/app",
                 f"node:{node_version}-alpine",
-                command=["sh", "-c", install_command],
-                working_dir="/app",
-                volumes={
-                    str(repo_dir.absolute()): {'bind': '/app', 'mode': 'rw'}
-                },
-                detach=True,
-                remove=False,
-                network_mode="bridge"
+                "sh", "-c", final_command
+            ]
+
+            process = subprocess.Popen(
+                docker_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
             )
 
-            self.container = container
-
             # Stream logs
-            for log_line in container.logs(stream=True, follow=True):
-                line = log_line.decode('utf-8').strip()
+            for line in process.stdout:
+                line = line.strip()
                 if line:
                     self.log(line)
 
             # Wait for completion
-            result = container.wait(timeout=INSTALL_TIMEOUT)
-            exit_code = result.get('StatusCode', 1)
-
-            # Cleanup container
-            container.remove()
-            self.container = None
+            exit_code = process.wait(timeout=INSTALL_TIMEOUT)
 
             if exit_code != 0:
                 raise Exception(f"Install failed with exit code {exit_code}")
@@ -295,36 +336,86 @@ class DockerBuilder:
         self.log(f"Command: {build_command}")
 
         try:
-            # Create and run container for build
+            # Run build using Docker CLI
             self.log(f"Creating Docker container with Node {node_version}...")
 
-            container = self.docker_client.containers.run(
+            # Prepare the command - install pnpm/yarn if needed and fix build command
+            final_command = build_command
+
+            # Detect which package manager was used for installation
+            pkg_manager = "npm"  # default
+            if (repo_dir / "pnpm-lock.yaml").exists():
+                pkg_manager = "pnpm"
+            elif (repo_dir / "yarn.lock").exists():
+                pkg_manager = "yarn"
+
+            # If command doesn't start with a package manager, check if it should be run as a script
+            if not build_command.startswith(("npm", "pnpm", "yarn", "npx")):
+                # Check if there's a matching script in package.json
+                import json
+                package_json_path = repo_dir / "package.json"
+                if package_json_path.exists():
+                    with open(package_json_path) as f:
+                        package_data = json.load(f)
+                        scripts = package_data.get("scripts", {})
+
+                        # If the command matches a script name exactly, use it
+                        if build_command in scripts:
+                            final_command = f"{pkg_manager} run {build_command}"
+                        # If command is like "astro build" but there's a "build" script, use "build"
+                        elif " " in build_command:
+                            cmd_parts = build_command.split()
+                            if "build" in scripts and cmd_parts[-1] == "build":
+                                final_command = f"{pkg_manager} run build"
+                            else:
+                                # Try as npm script with full command
+                                final_command = f"{pkg_manager} run {build_command}"
+                        else:
+                            # Try as npm script
+                            final_command = f"{pkg_manager} run {build_command}"
+
+            # Install package manager if needed
+            if final_command.startswith("pnpm") or pkg_manager == "pnpm":
+                # Configure pnpm to allow build scripts and enable proper permissions
+                final_command = f"corepack enable && corepack prepare pnpm@latest --activate && pnpm config set enable-pre-post-scripts true && pnpm config set unsafe-perm true && pnpm config set shamefully-hoist true && {final_command}"
+            elif final_command.startswith("yarn") or pkg_manager == "yarn":
+                final_command = f"corepack enable && corepack prepare yarn@stable --activate && {final_command}"
+
+            # Unset proxy for npm/pnpm to avoid slow downloads
+            # Add environment variables for better build compatibility
+            docker_cmd = [
+                "docker", "run",
+                "--rm",
+                "-e", "HTTP_PROXY=",
+                "-e", "HTTPS_PROXY=",
+                "-e", "http_proxy=",
+                "-e", "https_proxy=",
+                "-e", "ASTRO_TELEMETRY_DISABLED=1",  # Disable Astro telemetry
+                "-e", "NODE_ENV=production",          # Set production environment
+                "-e", "CI=true",                      # Indicate CI environment
+                "-e", "NO_COLOR=1",                   # Disable color output for cleaner logs
+                "-v", f"{repo_dir.absolute()}:/app",
+                "-w", "/app",
                 f"node:{node_version}-alpine",
-                command=["sh", "-c", build_command],
-                working_dir="/app",
-                volumes={
-                    str(repo_dir.absolute()): {'bind': '/app', 'mode': 'rw'}
-                },
-                detach=True,
-                remove=False,
-                network_mode="bridge"
+                "sh", "-c", final_command
+            ]
+
+            process = subprocess.Popen(
+                docker_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
             )
 
-            self.container = container
-
             # Stream logs
-            for log_line in container.logs(stream=True, follow=True):
-                line = log_line.decode('utf-8').strip()
+            for line in process.stdout:
+                line = line.strip()
                 if line:
                     self.log(line)
 
             # Wait for completion
-            result = container.wait(timeout=BUILD_TIMEOUT)
-            exit_code = result.get('StatusCode', 1)
-
-            # Cleanup container
-            container.remove()
-            self.container = None
+            exit_code = process.wait(timeout=BUILD_TIMEOUT)
 
             if exit_code != 0:
                 raise Exception(f"Build failed with exit code {exit_code}")
@@ -342,11 +433,11 @@ class DockerBuilder:
     def cleanup(self):
         """Cleanup build directory and resources."""
         try:
-            # Stop container if still running
-            if self.container:
+            # Stop container if still running (using container_id)
+            if self.container_id:
                 try:
-                    self.container.stop(timeout=10)
-                    self.container.remove()
+                    subprocess.run(["docker", "stop", self.container_id], timeout=10, capture_output=True)
+                    subprocess.run(["docker", "rm", self.container_id], timeout=10, capture_output=True)
                 except:
                     pass
 

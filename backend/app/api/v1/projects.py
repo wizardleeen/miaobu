@@ -8,20 +8,36 @@ from ...models import User, Project
 from ...schemas import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithDeployments
 from ...core.security import get_current_user
 from ...core.exceptions import NotFoundException, ForbiddenException, ConflictException
+from ...config import get_settings
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
 
 def generate_slug(name: str, user_id: int, db: Session) -> str:
-    """Generate a unique slug for a project."""
-    # Convert to lowercase, replace spaces with hyphens, remove special chars
-    base_slug = re.sub(r'[^a-z0-9-]', '', name.lower().replace(' ', '-'))
+    """
+    Generate a globally unique slug for a project.
+
+    Handles collisions by adding numeric suffix: app, app1, app2, etc.
+    The slug determines:
+    - OSS path: /projects/{slug}/
+    - Subdomain: {slug}.metavm.tech
+    """
+    # Convert to lowercase, replace spaces/dots with hyphens, remove special chars
+    base_slug = re.sub(r'[^a-z0-9-]', '', name.lower().replace(' ', '-').replace('.', '-'))
+
+    # Remove leading/trailing hyphens
+    base_slug = base_slug.strip('-')
+
+    # Limit length for subdomain (max 63 chars for DNS)
+    base_slug = base_slug[:50]
+
+    # Start without suffix
     slug = base_slug
 
-    # Ensure uniqueness
+    # Check global uniqueness across ALL projects (not just this user)
     counter = 1
     while db.query(Project).filter(Project.slug == slug).first():
-        slug = f"{base_slug}-{counter}"
+        slug = f"{base_slug}{counter}"  # app, app1, app2 (no hyphen for cleaner subdomain)
         counter += 1
 
     return slug
@@ -46,6 +62,9 @@ async def create_project(
     # Generate unique slug
     slug = generate_slug(project_data.name, current_user.id, db)
 
+    # Get settings for CDN domain
+    settings = get_settings()
+
     # Create project
     project = Project(
         user_id=current_user.id,
@@ -59,8 +78,8 @@ async def create_project(
         install_command=project_data.install_command,
         output_directory=project_data.output_directory,
         node_version=project_data.node_version,
-        oss_path=f"{current_user.id}/{slug}/",
-        default_domain=f"{slug}.miaobu.app"
+        oss_path=f"projects/{slug}/",  # NEW: Simplified path structure
+        default_domain=f"{slug}.{settings.cdn_base_domain}"  # e.g., app.metavm.tech
     )
 
     db.add(project)

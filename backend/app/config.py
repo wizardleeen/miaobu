@@ -31,7 +31,14 @@ class Settings(BaseSettings):
     aliyun_region: str = "cn-hangzhou"
     aliyun_oss_bucket: str
     aliyun_oss_endpoint: str
-    aliyun_cdn_domain: str = ""
+
+    # CDN Configuration (Wildcard domain - ONE TIME SETUP)
+    # Set up *.metavm.tech → CDN once, then all projects automatically work
+    cdn_enabled: bool = True
+    cdn_base_domain: str = "metavm.tech"  # Base domain for wildcard (*.metavm.tech)
+
+    # HTTP Proxy
+    http_proxy: str = ""
 
     class Config:
         env_file = ".env"

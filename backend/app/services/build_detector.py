@@ -8,6 +8,12 @@ class BuildDetector:
 
     # Framework detection patterns
     FRAMEWORK_PATTERNS = {
+        "astro": {
+            "indicators": ["astro"],
+            "build_command": "npm run build",
+            "output_directory": "dist",
+            "dev_command": "npm run dev"
+        },
         "vite": {
             "indicators": ["vite", "@vitejs/plugin-react"],
             "build_command": "npm run build",

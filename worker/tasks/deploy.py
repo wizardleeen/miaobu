@@ -34,6 +34,10 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
 
         project = deployment.project
 
+        # Get settings for CDN configuration
+        from app.config import get_settings
+        settings = get_settings()
+
         # Initialize OSS service
         oss_service = OSSService()
 
@@ -48,8 +52,13 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
         log_callback("STEP 5: UPLOADING TO OSS")
         log_callback("=" * 60)
 
-        # Construct OSS path: user_id/project_id/commit_sha/
-        oss_prefix = f"{project.user_id}/{project.id}/{deployment.commit_sha}/"
+        # NEW: Simple path structure based on project slug
+        # Path: /projects/{slug}/
+        # This overwrites previous deployments (latest deployment wins)
+        oss_prefix = f"projects/{project.slug}/"
+
+        log_callback(f"OSS path: {oss_prefix}")
+        log_callback(f"Subdomain: {project.slug}.{settings.cdn_base_domain}")
 
         # Upload directory to OSS
         build_dir = Path(build_output_dir)
@@ -66,24 +75,41 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
         deployment.oss_url = upload_result['index_url']
         deployment.deployment_url = upload_result['index_url']
 
-        # If CDN domain is configured, use CDN URL
-        from app.config import get_settings
-        settings = get_settings()
+        # Generate CDN URL using wildcard subdomain pattern
+        if settings.cdn_enabled and settings.cdn_base_domain:
+            # Generate subdomain from project slug
+            # Example: app → app.metavm.tech
+            subdomain = f"{project.slug}.{settings.cdn_base_domain}"
 
-        if settings.aliyun_cdn_domain:
-            # Replace OSS domain with CDN domain
-            cdn_url = upload_result['index_url'].replace(
-                f"{settings.aliyun_oss_bucket}.{settings.aliyun_oss_endpoint}",
-                settings.aliyun_cdn_domain
-            )
+            # Construct CDN URL (simple, clean)
+            # Format: https://{slug}.metavm.tech/
+            cdn_url = f"https://{subdomain}/"
+
             deployment.cdn_url = cdn_url
             deployment.deployment_url = cdn_url  # Prefer CDN URL
-            log_callback(f"CDN URL: {cdn_url}")
+            log_callback(f"✓ Deployment URL: {cdn_url}")
+            log_callback(f"✓ Access your site at: https://{subdomain}")
 
         # Mark as deployed
         deployment.status = DeploymentStatus.DEPLOYED
         deployment.deployed_at = datetime.utcnow()
         db.commit()
+
+        # Update subdomain mapping for EdgeScript (optional - EdgeScript can work without it)
+        if settings.cdn_enabled and settings.cdn_base_domain:
+            try:
+                from app.services.subdomain_mapping import SubdomainMappingService
+
+                log_callback("Updating subdomain mapping...")
+                mapping_service = SubdomainMappingService()
+                success = mapping_service.update_mapping(db)
+
+                if success:
+                    log_callback(f"✓ Subdomain mapping updated")
+                else:
+                    log_callback(f"⚠️  Subdomain mapping update failed (EdgeScript may still work)")
+            except Exception as e:
+                log_callback(f"⚠️  Subdomain mapping: {e}")
 
         log_callback("")
         log_callback("=" * 60)
@@ -91,8 +117,8 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
         log_callback("=" * 60)
         log_callback(f"Deployment URL: {deployment.deployment_url}")
 
-        # Purge CDN cache if CDN is configured
-        if settings.aliyun_cdn_domain:
+        # Purge CDN cache if CDN is enabled
+        if settings.cdn_enabled and settings.cdn_base_domain:
             log_callback("")
             from .cdn import purge_cdn_cache
 
@@ -101,7 +127,10 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
             purge_result = purge_cdn_cache(deployment_id, wait_for_completion=False)
 
             if purge_result.get('success'):
-                log_callback(f"✓ CDN cache purge initiated (Task ID: {purge_result.get('task_id')})")
+                if purge_result.get('skipped'):
+                    log_callback(f"⚠️  CDN cache purge skipped: {purge_result.get('warning', 'CDN not configured')}")
+                else:
+                    log_callback(f"✓ CDN cache purge initiated (Task ID: {purge_result.get('task_id')})")
             else:
                 log_callback(f"⚠️  CDN cache purge failed: {purge_result.get('error', 'Unknown error')}")
 

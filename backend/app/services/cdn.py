@@ -32,7 +32,8 @@ class CDNService:
             settings.aliyun_region
         )
 
-        self.cdn_domain = settings.aliyun_cdn_domain
+        # CDN domain will be set externally (per-project subdomain)
+        self.cdn_domain = None
 
     def refresh_object_cache(
         self,
