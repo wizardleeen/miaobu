@@ -15,7 +15,7 @@ oss2==2.18.4
 aliyun-python-sdk-core==2.14.0
 aliyun-python-sdk-cdn==3.8.8
 dnspython==2.4.2
-aliyun-python-sdk-alidns==3.0.10
+aliyun-python-sdk-alidns==3.0.7
 cryptography==42.0.0
 acme==2.7.4
 josepy==1.14.0

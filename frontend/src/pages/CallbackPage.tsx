@@ -10,24 +10,36 @@ export default function CallbackPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const code = searchParams.get('code')
-    const state = searchParams.get('state')
+    const token = searchParams.get('token')
+    const errorMessage = searchParams.get('error')
 
-    if (!code || !state) {
-      setError('Invalid callback parameters')
+    if (errorMessage) {
+      setError(decodeURIComponent(errorMessage))
+      setTimeout(() => navigate('/login'), 3000)
       return
     }
 
-    handleCallback(code, state)
+    if (!token) {
+      setError('Invalid callback parameters')
+      setTimeout(() => navigate('/login'), 3000)
+      return
+    }
+
+    handleCallback(token)
   }, [searchParams])
 
-  const handleCallback = async (code: string, state: string) => {
+  const handleCallback = async (token: string) => {
     try {
-      const data = await api.handleGitHubCallback(code, state)
-      setAuth(data.access_token, data.user)
+      // Temporarily store token for API call
+      localStorage.setItem('token', token)
+
+      // Fetch user info using the token
+      const user = await api.getCurrentUser()
+      setAuth(token, user)
       navigate('/dashboard')
     } catch (error) {
       console.error('Authentication failed:', error)
+      localStorage.removeItem('token')
       setError('Authentication failed. Please try again.')
       setTimeout(() => navigate('/login'), 3000)
     }

@@ -12,6 +12,14 @@ class GitHubService:
     GITHUB_OAUTH_URL = "https://github.com/login/oauth"
 
     @staticmethod
+    def _get_client(timeout: float = 30.0) -> httpx.AsyncClient:
+        """Get configured HTTP client with proxy support."""
+        client_kwargs = {"timeout": timeout}
+        if settings.http_proxy:
+            client_kwargs["proxies"] = settings.http_proxy
+        return httpx.AsyncClient(**client_kwargs)
+
+    @staticmethod
     async def get_oauth_url(state: str) -> str:
         """Generate GitHub OAuth authorization URL."""
         return (
@@ -25,7 +33,7 @@ class GitHubService:
     @staticmethod
     async def exchange_code_for_token(code: str) -> str:
         """Exchange authorization code for access token."""
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             response = await client.post(
                 f"{GitHubService.GITHUB_OAUTH_URL}/access_token",
                 headers={"Accept": "application/json"},
@@ -43,7 +51,7 @@ class GitHubService:
     @staticmethod
     async def get_user_info(access_token: str) -> Dict[str, Any]:
         """Get authenticated user's information from GitHub."""
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             response = await client.get(
                 f"{GitHubService.GITHUB_API_URL}/user",
                 headers={
@@ -76,7 +84,7 @@ class GitHubService:
     @staticmethod
     async def list_repositories(access_token: str, page: int = 1, per_page: int = 30) -> list:
         """List user's repositories."""
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             response = await client.get(
                 f"{GitHubService.GITHUB_API_URL}/user/repos",
                 headers={
@@ -96,7 +104,7 @@ class GitHubService:
     @staticmethod
     async def get_repository(access_token: str, owner: str, repo: str) -> Dict[str, Any]:
         """Get repository information."""
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             response = await client.get(
                 f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}",
                 headers={
@@ -112,7 +120,7 @@ class GitHubService:
         access_token: str, owner: str, repo: str, file_path: str, branch: str = "main"
     ) -> Optional[str]:
         """Get file content from repository."""
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             try:
                 response = await client.get(
                     f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/contents/{file_path}",
@@ -132,7 +140,7 @@ class GitHubService:
         access_token: str, owner: str, repo: str, webhook_url: str, secret: str
     ) -> Dict[str, Any]:
         """Create a webhook for repository."""
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             response = await client.post(
                 f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/hooks",
                 headers={
@@ -157,7 +165,7 @@ class GitHubService:
     @staticmethod
     async def delete_webhook(access_token: str, owner: str, repo: str, hook_id: int) -> bool:
         """Delete a webhook from repository."""
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             try:
                 response = await client.delete(
                     f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/hooks/{hook_id}",
@@ -176,7 +184,7 @@ class GitHubService:
         access_token: str, owner: str, repo: str, branch: Optional[str] = None
     ) -> list:
         """Get repository file tree."""
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             try:
                 # First get the default branch if not specified
                 if not branch:
@@ -265,7 +273,7 @@ class GitHubService:
         access_token: str, query: str, page: int = 1, per_page: int = 30
     ) -> Dict[str, Any]:
         """Search user's repositories."""
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             # Get current user to filter by ownership
             user_info = await GitHubService.get_user_info(access_token)
             username = user_info["login"]

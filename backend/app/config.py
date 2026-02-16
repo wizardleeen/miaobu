@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     cdn_enabled: bool = True
     cdn_base_domain: str = "metavm.tech"  # Base domain for wildcard (*.metavm.tech)
 
+    # ESA Configuration (Edge Security Acceleration)
+    aliyun_esa_enabled: bool = True
+    aliyun_esa_site_id: str = ""  # ESA site ID for metavm.tech
+    aliyun_esa_site_name: str = "metavm.tech"
+    aliyun_esa_cname_target: str = "cname.metavm.tech"
+    aliyun_esa_edge_kv_namespace_id: str = "961854465965670400"
+    aliyun_esa_edge_kv_namespace: str = "miaobu"
+
     # HTTP Proxy
     http_proxy: str = ""
 

@@ -7,6 +7,8 @@ from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / 'backend'))
+# Add current directory to path for tasks module
+sys.path.insert(0, str(Path(__file__).parent))
 
 # Get Redis URL from environment
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')

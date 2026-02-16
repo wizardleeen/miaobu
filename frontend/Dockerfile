@@ -2,6 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Use Chinese mirrors for faster package downloads
+RUN npm config set registry https://registry.npmmirror.com
+
 # Copy package files
 COPY package*.json ./
 

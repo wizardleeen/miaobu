@@ -95,6 +95,56 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
         deployment.deployed_at = datetime.utcnow()
         db.commit()
 
+        # Auto-update custom domains with auto_update_enabled (ESA)
+        try:
+            from app.models import CustomDomain
+            from app.services.esa import ESAService
+
+            log_callback("")
+            log_callback("Checking for custom domains with auto-update...")
+
+            # Find custom domains with auto-update enabled for this project
+            auto_update_domains = db.query(CustomDomain).filter(
+                CustomDomain.project_id == project.id,
+                CustomDomain.is_verified == True,
+                CustomDomain.auto_update_enabled == True,
+                CustomDomain.domain_type == "esa"
+            ).all()
+
+            if auto_update_domains:
+                log_callback(f"Found {len(auto_update_domains)} domain(s) with auto-update enabled")
+                esa_service = ESAService()
+
+                for domain in auto_update_domains:
+                    log_callback(f"  Updating {domain.domain}...")
+
+                    # Update Edge KV mapping
+                    kv_result = esa_service.update_edge_kv_mapping(
+                        domain=domain.domain,
+                        user_id=project.user_id,
+                        project_id=project.id,
+                        deployment_id=deployment.id,
+                        commit_sha=deployment.commit_sha
+                    )
+
+                    if kv_result['success']:
+                        # Update database
+                        domain.active_deployment_id = deployment.id
+                        domain.edge_kv_synced = True
+                        domain.edge_kv_synced_at = datetime.utcnow()
+                        log_callback(f"  ✓ {domain.domain} updated to deployment #{deployment.id}")
+                    else:
+                        domain.edge_kv_synced = False
+                        log_callback(f"  ⚠️  {domain.domain} Edge KV update failed: {kv_result.get('error')}")
+
+                db.commit()
+            else:
+                log_callback("No domains with auto-update enabled")
+
+        except Exception as e:
+            log_callback(f"⚠️  Auto-update check failed: {str(e)}")
+            # Don't fail the deployment if auto-update fails
+
         # Update subdomain mapping for EdgeScript (optional - EdgeScript can work without it)
         if settings.cdn_enabled and settings.cdn_base_domain:
             try:

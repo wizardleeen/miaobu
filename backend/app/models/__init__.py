@@ -85,7 +85,7 @@ class Project(Base):
 
     # Relationships
     user = relationship("User", back_populates="projects")
-    deployments = relationship("Deployment", back_populates="project", cascade="all, delete-orphan")
+    deployments = relationship("Deployment", back_populates="project", cascade="all, delete-orphan", order_by="Deployment.created_at.desc()")
     custom_domains = relationship("CustomDomain", back_populates="project", cascade="all, delete-orphan")
 
     def __repr__(self):
@@ -142,10 +142,24 @@ class CustomDomain(Base):
     is_verified = Column(Boolean, default=False, nullable=False)
     verification_token = Column(String(255))
 
-    # SSL info
+    # SSL info (legacy - kept for backward compatibility)
     ssl_status = Column(SQLEnum(SSLStatus), default=SSLStatus.PENDING, nullable=False)
     ssl_certificate_id = Column(String(255))
     ssl_expires_at = Column(DateTime(timezone=True))
+
+    # ESA (Edge Security Acceleration) fields
+    esa_saas_id = Column(String(255), index=True)  # ESA SaaS manager ID
+    esa_status = Column(String(50))  # ESA configuration status: pending, online, offline, error
+    cname_target = Column(String(255), default="cname.metavm.tech")
+
+    # Routing fields
+    active_deployment_id = Column(Integer, ForeignKey("deployments.id"), index=True)  # Which deployment to serve
+    edge_kv_synced = Column(Boolean, default=False, nullable=False)  # Whether Edge KV is up to date
+    edge_kv_synced_at = Column(DateTime(timezone=True))  # Last successful KV sync time
+    auto_update_enabled = Column(Boolean, default=False, nullable=False)  # Auto-promote new deployments
+
+    # Domain type: 'cdn' (legacy) or 'esa' (new)
+    domain_type = Column(String(20), default="esa", nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -153,6 +167,11 @@ class CustomDomain(Base):
 
     # Relationships
     project = relationship("Project", back_populates="custom_domains")
+    active_deployment = relationship(
+        "Deployment",
+        foreign_keys=[active_deployment_id],
+        backref="custom_domains_using_this"
+    )
 
     def __repr__(self):
         return f"<CustomDomain(id={self.id}, domain={self.domain}, is_verified={self.is_verified})>"

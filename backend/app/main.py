@@ -4,7 +4,8 @@ from fastapi.responses import JSONResponse
 from datetime import datetime
 
 from .config import get_settings
-from .api.v1 import auth, projects, deployments, repositories, projects_deploy, webhooks, domains
+from .api.v1 import auth, projects, deployments, repositories, projects_deploy, webhooks
+from .api.v1 import domains_esa as domains
 from .schemas import HealthCheck
 
 settings = get_settings()
@@ -18,9 +19,17 @@ app = FastAPI(
 )
 
 # CORS middleware
+# Allow multiple frontend origins for development and production
+allowed_origins = [
+    settings.frontend_url,
+    "http://localhost:5173",
+    "https://app.metavm.tech",
+    "https://miaobu.metavm.tech",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url, "http://localhost:5173"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

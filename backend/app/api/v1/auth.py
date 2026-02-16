@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 import secrets
 
@@ -8,6 +9,9 @@ from ...schemas import Token, UserResponse
 from ...services.github import GitHubService
 from ...core.security import create_access_token, get_current_user
 from ...core.exceptions import UnauthorizedException
+from ...config import get_settings
+
+settings = get_settings()
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -27,15 +31,19 @@ async def github_callback(
     state: str = Query(...),
     db: Session = Depends(get_db)
 ):
-    """Handle GitHub OAuth callback."""
+    """Handle GitHub OAuth callback and redirect to frontend."""
     try:
+        print(f"[DEBUG] GitHub callback started with code: {code[:20]}...")
+
         # Exchange code for access token
         access_token = await GitHubService.exchange_code_for_token(code)
+        print(f"[DEBUG] Got access token: {access_token[:20] if access_token else 'None'}...")
         if not access_token:
             raise UnauthorizedException("Failed to get access token from GitHub")
 
         # Get user info from GitHub
         github_user = await GitHubService.get_user_info(access_token)
+        print(f"[DEBUG] Got GitHub user: {github_user.get('login')}")
 
         # Find or create user in database
         user = db.query(User).filter(User.github_id == github_user["id"]).first()
@@ -46,6 +54,7 @@ async def github_callback(
             user.github_email = github_user.get("email")
             user.github_avatar_url = github_user["avatar_url"]
             user.github_access_token = access_token  # TODO: Encrypt in production
+            print(f"[DEBUG] Updated existing user: {user.id}")
         else:
             # Create new user
             user = User(
@@ -56,21 +65,31 @@ async def github_callback(
                 github_access_token=access_token  # TODO: Encrypt in production
             )
             db.add(user)
+            print(f"[DEBUG] Created new user")
 
         db.commit()
         db.refresh(user)
+        print(f"[DEBUG] Database commit successful, user.id: {user.id}")
 
         # Create JWT token
-        jwt_token = create_access_token(data={"sub": user.id})
+        jwt_token = create_access_token(data={"sub": str(user.id)})
+        print(f"[DEBUG] Created JWT token: {jwt_token[:50]}...")
 
-        return {
-            "access_token": jwt_token,
-            "token_type": "bearer",
-            "user": UserResponse.model_validate(user)
-        }
+        # Redirect to frontend with token
+        frontend_url = f"{settings.frontend_url}/auth/callback?token={jwt_token}"
+        print(f"[DEBUG] Redirecting to: {frontend_url[:80]}...")
+        return RedirectResponse(url=frontend_url)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
+        # Redirect to frontend with error
+        print(f"[ERROR] Exception in github_callback: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Get error message from HTTPException.detail or str(e)
+        error_message = getattr(e, 'detail', str(e)) or 'Authentication failed'
+        error_url = f"{settings.frontend_url}/auth/callback?error={error_message}"
+        print(f"[ERROR] Redirecting to error URL: {error_url}")
+        return RedirectResponse(url=error_url)
 
 
 @router.get("/me", response_model=UserResponse)

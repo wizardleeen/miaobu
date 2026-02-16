@@ -26,7 +26,7 @@ interface DeploymentCardProps {
 export default function DeploymentCard({ deployment, onCancel }: DeploymentCardProps) {
   const [showLogs, setShowLogs] = useState(false)
 
-  const { data: logsData, refetch } = useQuery({
+  const { data: logsData } = useQuery({
     queryKey: ['deployment-logs', deployment.id],
     queryFn: () => api.getDeploymentLogs(deployment.id),
     enabled: showLogs,

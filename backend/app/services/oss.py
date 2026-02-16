@@ -19,13 +19,13 @@ class OSSService:
 
     def __init__(self):
         """Initialize OSS client with credentials from settings."""
-        auth = oss2.Auth(
+        self.auth = oss2.Auth(
             settings.aliyun_access_key_id,
             settings.aliyun_access_key_secret
         )
 
         self.bucket = oss2.Bucket(
-            auth,
+            self.auth,
             settings.aliyun_oss_endpoint,
             settings.aliyun_oss_bucket
         )
@@ -35,6 +35,39 @@ class OSSService:
             '.html', '.css', '.js', '.json', '.xml', '.svg',
             '.txt', '.md', '.csv', '.map'
         }
+
+        # Ensure bucket exists
+        self._ensure_bucket_exists()
+
+    def _ensure_bucket_exists(self):
+        """
+        Check if bucket exists, create it if it doesn't.
+        Sets bucket to public-read access for static hosting.
+        """
+        try:
+            # Try to get bucket info to check if it exists
+            self.bucket.get_bucket_info()
+            print(f"[OSS] Bucket '{settings.aliyun_oss_bucket}' already exists")
+        except oss2.exceptions.NoSuchBucket:
+            # Bucket doesn't exist, create it
+            print(f"[OSS] Creating bucket '{settings.aliyun_oss_bucket}'...")
+
+            # Create bucket with public-read ACL for static hosting
+            from oss2.models import BUCKET_ACL_PUBLIC_READ, BucketCreateConfig
+
+            # Use service endpoint for bucket creation
+            service = oss2.Service(self.auth, settings.aliyun_oss_endpoint)
+
+            # Create bucket
+            config = BucketCreateConfig(oss2.BUCKET_STORAGE_CLASS_STANDARD)
+            self.bucket.create_bucket(BUCKET_ACL_PUBLIC_READ, config)
+
+            print(f"[OSS] ✓ Bucket '{settings.aliyun_oss_bucket}' created successfully")
+            print(f"[OSS] ✓ Bucket set to public-read access")
+        except oss2.exceptions.OssError as e:
+            print(f"[OSS] Error checking/creating bucket: {e}")
+            # Don't fail initialization, just log the error
+            # The error will surface when trying to upload files
 
     def get_content_type(self, file_path: Path) -> str:
         """

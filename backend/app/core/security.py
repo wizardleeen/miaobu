@@ -36,9 +36,10 @@ def decode_access_token(token: str) -> TokenData:
     )
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-        user_id: int = payload.get("sub")
-        if user_id is None:
+        user_id_str: str = payload.get("sub")
+        if user_id_str is None:
             raise credentials_exception
+        user_id = int(user_id_str)
         token_data = TokenData(user_id=user_id)
     except JWTError:
         raise credentials_exception

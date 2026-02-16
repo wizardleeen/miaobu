@@ -25,7 +25,7 @@ export default function ImportRepositoryPage() {
   const [analysis, setAnalysis] = useState<any>(null)
   const [customConfig, setCustomConfig] = useState<any>(null)
 
-  const { data: reposData, isLoading, refetch } = useQuery({
+  const { data: reposData, isLoading } = useQuery({
     queryKey: ['repositories', search],
     queryFn: () => api.listRepositories(1, 30, search || undefined),
   })

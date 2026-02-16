@@ -180,24 +180,54 @@ class ApiService {
     await this.client.delete(`/domains/${domainId}`)
   }
 
-  // SSL Certificate endpoints
-  async issueSSL(domainId: number, useStaging: boolean = false) {
-    const response = await this.client.post(`/domains/${domainId}/issue-ssl`, {
-      use_staging: useStaging,
+  // ESA Domain Management endpoints
+  async getDomainStatus(domainId: number) {
+    const response = await this.client.get(`/domains/${domainId}/status`)
+    return response.data
+  }
+
+  async getDomainDeployments(domainId: number) {
+    const response = await this.client.get(`/domains/${domainId}/deployments`)
+    return response.data
+  }
+
+  async promoteDeployment(domainId: number, deploymentId: number) {
+    const response = await this.client.post(`/domains/${domainId}/promote-deployment`, {
+      deployment_id: deploymentId,
     })
     return response.data
   }
 
-  async renewSSL(domainId: number, force: boolean = false) {
-    const response = await this.client.post(`/domains/${domainId}/renew-ssl`, {
-      force,
-    })
+  async updateDomainSettings(domainId: number, settings: { auto_update_enabled?: boolean }) {
+    const response = await this.client.post(`/domains/${domainId}/settings`, settings)
     return response.data
+  }
+
+  async syncEdgeKV(domainId: number) {
+    const response = await this.client.post(`/domains/${domainId}/sync-edge-kv`)
+    return response.data
+  }
+
+  // Legacy SSL Certificate endpoints (deprecated - ESA handles SSL automatically)
+  // Kept for backward compatibility, but these endpoints no longer exist
+  async issueSSL(_domainId: number, _useStaging: boolean = false) {
+    console.warn('issueSSL is deprecated - ESA handles SSL automatically')
+    return { success: false, message: 'SSL is now automatic via ESA' }
+  }
+
+  async renewSSL(_domainId: number, _force: boolean = false) {
+    console.warn('renewSSL is deprecated - ESA handles SSL automatically')
+    return { success: false, message: 'SSL is now automatic via ESA' }
   }
 
   async getSSLStatus(domainId: number) {
-    const response = await this.client.get(`/domains/${domainId}/ssl-status`)
-    return response.data
+    console.warn('getSSLStatus is deprecated - use getDomainStatus instead')
+    // Fallback to domain status for compatibility
+    const status = await this.getDomainStatus(domainId)
+    return {
+      ssl_status: status.ssl_status,
+      is_https_enabled: status.esa_status === 'online',
+    }
   }
 }
 

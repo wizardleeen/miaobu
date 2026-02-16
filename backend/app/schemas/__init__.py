@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
 from datetime import datetime
 from typing import Optional, List
@@ -89,12 +91,12 @@ class ProjectResponse(ProjectBase):
 
 
 class ProjectWithDeployments(ProjectResponse):
-    deployments: List["DeploymentResponse"] = []
+    deployments: List[DeploymentResponse] = []
 
 
 # Deployment Schemas
 class DeploymentBase(BaseModel):
-    commit_sha: str = Field(..., min_length=40, max_length=40)
+    commit_sha: str = Field(..., max_length=100)  # Allow "manual" or full git SHA
     commit_message: Optional[str] = None
     commit_author: Optional[str] = None
     branch: str = Field(..., max_length=100)
@@ -140,6 +142,17 @@ class CustomDomainResponse(CustomDomainBase):
     ssl_status: SSLStatus
     ssl_certificate_id: Optional[str] = None
     ssl_expires_at: Optional[datetime] = None
+
+    # ESA fields
+    esa_saas_id: Optional[str] = None
+    esa_status: Optional[str] = None
+    cname_target: Optional[str] = None
+    active_deployment_id: Optional[int] = None
+    edge_kv_synced: bool = False
+    edge_kv_synced_at: Optional[datetime] = None
+    auto_update_enabled: bool = False
+    domain_type: str = "esa"
+
     created_at: datetime
     updated_at: datetime
     verified_at: Optional[datetime] = None
@@ -179,3 +192,7 @@ class WebhookPayload(BaseModel):
 class HealthCheck(BaseModel):
     status: str = "ok"
     timestamp: datetime
+
+
+# Rebuild models to resolve forward references
+ProjectWithDeployments.model_rebuild()

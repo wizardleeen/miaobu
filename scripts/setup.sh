@@ -18,22 +18,22 @@ fi
 
 # Start services
 echo "📦 Starting Docker containers..."
-docker-compose up -d postgres redis
+docker compose up -d postgres redis
 
 echo "⏳ Waiting for database to be ready..."
 sleep 5
 
 # Build backend
 echo "🔨 Building backend..."
-docker-compose build backend
+docker compose build backend
 
 # Run migrations
 echo "📊 Running database migrations..."
-docker-compose run --rm backend alembic upgrade head
+docker compose run --rm backend alembic upgrade head
 
 # Start all services
 echo "🎉 Starting all services..."
-docker-compose up -d
+docker compose up -d
 
 echo ""
 echo "✅ Setup complete!"
@@ -43,5 +43,5 @@ echo "  - Frontend: http://localhost:5173"
 echo "  - Backend API: http://localhost:8000"
 echo "  - API Docs: http://localhost:8000/docs"
 echo ""
-echo "View logs with: docker-compose logs -f"
-echo "Stop services with: docker-compose down"
+echo "View logs with: docker compose logs -f"
+echo "Stop services with: docker compose down"

@@ -177,6 +177,9 @@ async def import_repository(
         db.commit()
         db.refresh(project)
 
+        # Note: CDN subdomains work automatically via wildcard domain (*.metavm.tech)
+        # No per-project CDN configuration needed!
+
         # Automatically create GitHub webhook for this project
         webhook_created = False
         webhook_error = None
