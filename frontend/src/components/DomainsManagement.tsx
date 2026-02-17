@@ -14,6 +14,37 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
   const [showInstructions, setShowInstructions] = useState(false)
   const [dnsStatus, setDnsStatus] = useState<any>(null)
   const [showDeployments, setShowDeployments] = useState(false)
+  const [copiedField, setCopiedField] = useState<string | null>(null)
+  const [refreshingSSL, setRefreshingSSL] = useState(false)
+
+  const copyToClipboard = async (text: string, fieldName: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedField(fieldName)
+      setTimeout(() => setCopiedField(null), 2000)
+    } catch (error) {
+      console.error('Failed to copy:', error)
+      alert('复制到剪贴板失败')
+    }
+  }
+
+  const CopyButton = ({ text, fieldName, label }: { text: string; fieldName: string; label?: string }) => {
+    const isCopied = copiedField === fieldName
+    return (
+      <button
+        type="button"
+        onClick={() => copyToClipboard(text, fieldName)}
+        className={`px-3 py-1 text-xs rounded-lg transition-all ${
+          isCopied
+            ? 'bg-green-100 text-green-700 border border-green-300'
+            : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200'
+        }`}
+        title={`复制${label || '到剪贴板'}`}
+      >
+        {isCopied ? '✓ 已复制' : '📋 复制'}
+      </button>
+    )
+  }
 
   const { data: domains, isLoading } = useQuery({
     queryKey: ['domains', projectId],
@@ -48,7 +79,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['domains', projectId] })
       queryClient.invalidateQueries({ queryKey: ['domain-deployments', selectedDomain?.id] })
-      alert('✅ Deployment promoted successfully! Changes will be live in ~30 seconds.')
+      alert('✅ 部署已成功上线！变更将在约30秒内生效。')
     },
   })
 
@@ -99,23 +130,23 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
     const result = await verifyMutation.mutateAsync(domainId)
 
     if (result.verified) {
-      alert('✅ Domain verified successfully! SSL certificate will be provisioned automatically.')
+      alert('✅ 域名验证成功！SSL 证书将自动配置。')
       setShowInstructions(false)
       setSelectedDomain(null)
     } else {
-      alert(`❌ Verification failed: ${result.message}`)
+      alert(`❌ 验证失败：${result.message}`)
     }
   }
 
   const handleCheckDNS = async (domainId: number) => {
     const status = await api.checkDomainDNS(domainId)
     setDnsStatus(status)
-    alert('DNS status updated. Check the status below.')
+    alert('DNS 状态已更新。请查看下方状态信息。')
   }
 
   const handlePromoteDeployment = (deploymentId: number) => {
     if (!selectedDomain) return
-    if (!confirm('Promote this deployment to production?')) return
+    if (!confirm('确定要将此部署上线到生产环境吗？')) return
 
     promoteMutation.mutate({ domainId: selectedDomain.id, deploymentId })
   }
@@ -123,38 +154,58 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
   const handleToggleAutoUpdate = async (domainId: number, enabled: boolean) => {
     if (!confirm(
       enabled
-        ? 'Enable auto-deploy? New successful deployments will automatically go live on this domain.'
-        : 'Disable auto-deploy? You will need to manually promote deployments.'
+        ? '确定要启用自动部署吗？新的成功部署将自动在此域名上线。'
+        : '确定要禁用自动部署吗？您将需要手动上线部署。'
     )) return
 
     await updateSettingsMutation.mutateAsync({
       domainId,
       settings: { auto_update_enabled: enabled },
     })
-    alert(enabled ? '✅ Auto-deploy enabled' : '✅ Auto-deploy disabled')
+    alert(enabled ? '✅ 自动部署已启用' : '✅ 自动部署已禁用')
   }
 
   const handleSyncEdgeKV = async (domainId: number) => {
     try {
       await api.syncEdgeKV(domainId)
       queryClient.invalidateQueries({ queryKey: ['domains', projectId] })
-      alert('✅ Edge KV synchronized successfully')
+      alert('✅ 边缘配置同步成功')
     } catch (error: any) {
-      alert(`❌ Sync failed: ${error.response?.data?.detail || error.message}`)
+      alert(`❌ 同步失败：${error.response?.data?.detail || error.message}`)
+    }
+  }
+
+  const handleRefreshSSL = async (domainId: number) => {
+    setRefreshingSSL(true)
+    try {
+      const result = await api.refreshSSLStatus(domainId)
+      queryClient.invalidateQueries({ queryKey: ['domains', projectId] })
+
+      if (result.is_https_ready) {
+        alert('🔒 HTTPS 已就绪！您的网站现在可以通过 HTTPS 访问。')
+      } else {
+        const statusText = result.ssl_status === 'issuing' ? '签发中' :
+                          result.ssl_status === 'verifying' ? '验证中' : '待处理'
+        alert(`⏳ SSL 状态：${statusText}。证书仍在配置中。`)
+      }
+    } catch (error: any) {
+      alert(`❌ 刷新 SSL 状态失败：${error.response?.data?.detail || error.message}`)
+    } finally {
+      setRefreshingSSL(false)
     }
   }
 
   if (isLoading) {
-    return <div className="text-center py-4">Loading domains...</div>
+    return <div className="text-center py-4">加载域名列表...</div>
   }
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold">Custom Domains</h2>
+          <h2 className="text-2xl font-bold">自定义域名</h2>
           <p className="text-gray-600 mt-1">
-            Add custom domains to access your deployments with ESA
+            添加自定义域名，通过边缘加速访问您的部署
           </p>
         </div>
         <button
@@ -162,7 +213,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
           onClick={() => setShowAddDomain(true)}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
-          + Add Domain
+          + 添加域名
         </button>
       </div>
 
@@ -170,10 +221,10 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
       {showAddDomain && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-xl font-bold mb-4">Add Custom Domain</h3>
+            <h3 className="text-xl font-bold mb-4">添加自定义域名</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Domain Name</label>
+                <label className="block text-sm font-medium mb-2">域名</label>
                 <input
                   type="text"
                   value={newDomain}
@@ -182,7 +233,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-sm text-gray-500 mt-1">
-                  Enter your domain (e.g., www.example.com or blog.example.com)
+                  输入您的域名（例如：www.example.com 或 blog.example.com）
                 </p>
               </div>
               <div className="flex gap-2 justify-end">
@@ -194,7 +245,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                   }}
                   className="px-4 py-2 border rounded-lg hover:bg-gray-50"
                 >
-                  Cancel
+                  取消
                 </button>
                 <button
                   type="button"
@@ -202,7 +253,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                   disabled={!newDomain || createMutation.isPending}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {createMutation.isPending ? 'Adding...' : 'Add Domain'}
+                  {createMutation.isPending ? '添加中...' : '添加域名'}
                 </button>
               </div>
             </div>
@@ -215,7 +266,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
           <div className="bg-white rounded-lg p-6 max-w-3xl w-full my-8">
             <h3 className="text-xl font-bold mb-4">
-              DNS Configuration: {selectedDomain.domain}
+              DNS 配置：{selectedDomain.domain}
             </h3>
 
             {/* Verification Status */}
@@ -231,9 +282,9 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                   <>
                     <span className="text-2xl">✅</span>
                     <div>
-                      <div className="font-bold text-green-800">Domain Verified</div>
+                      <div className="font-bold text-green-800">域名已验证</div>
                       <div className="text-sm text-green-700">
-                        Your domain is verified and configured with ESA
+                        您的域名已验证并配置边缘加速
                       </div>
                     </div>
                   </>
@@ -241,9 +292,9 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                   <>
                     <span className="text-2xl">⏳</span>
                     <div>
-                      <div className="font-bold text-yellow-800">Verification Pending</div>
+                      <div className="font-bold text-yellow-800">待验证</div>
                       <div className="text-sm text-yellow-700">
-                        Please configure DNS records below and click "Verify Domain"
+                        请按照下方说明配置 DNS 记录，然后点击"验证域名"
                       </div>
                     </div>
                   </>
@@ -253,7 +304,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
 
             {/* DNS Configuration Steps */}
             <div className="space-y-4 mb-6">
-              <h4 className="font-bold text-lg">DNS Configuration Steps</h4>
+              <h4 className="font-bold text-lg">DNS 配置步骤</h4>
 
               {/* Step 1: TXT Record for Verification */}
               {!selectedDomain.is_verified && (
@@ -263,33 +314,51 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                       1
                     </div>
                     <div className="flex-1">
-                      <h5 className="font-bold mb-2">Add TXT Record for Verification</h5>
+                      <h5 className="font-bold mb-2">添加 TXT 记录以验证域名</h5>
                       <p className="text-sm text-gray-600 mb-3">
-                        Add this TXT record to verify domain ownership
+                        添加此 TXT 记录以验证域名所有权
                       </p>
 
-                      <div className="bg-gray-50 p-3 rounded font-mono text-sm">
-                        <div className="grid grid-cols-2 gap-2 mb-2">
+                      <div className="bg-gray-50 p-3 rounded font-mono text-sm space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <span className="text-gray-600">Type:</span>{' '}
+                            <span className="text-gray-600">类型：</span>{' '}
                             <span className="font-bold">TXT</span>
                           </div>
                           <div>
-                            <span className="text-gray-600">TTL:</span> 300
+                            <span className="text-gray-600">TTL：</span> 300
                           </div>
                         </div>
-                        <div className="mb-1">
-                          <span className="text-gray-600">Name:</span>{' '}
-                          _miaobu-verification.{selectedDomain.domain}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-gray-600">记录名称：</span>
+                            <CopyButton
+                              text={`_miaobu-verification.${selectedDomain.domain}`}
+                              fieldName="txt-name"
+                              label="TXT 记录名称"
+                            />
+                          </div>
+                          <div className="bg-white p-2 rounded border break-all">
+                            _miaobu-verification.{selectedDomain.domain}
+                          </div>
                         </div>
                         <div>
-                          <span className="text-gray-600">Value:</span>{' '}
-                          <span className="break-all">{selectedDomain.verification_token}</span>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-gray-600">记录值：</span>
+                            <CopyButton
+                              text={selectedDomain.verification_token}
+                              fieldName="txt-value"
+                              label="TXT 记录值"
+                            />
+                          </div>
+                          <div className="bg-white p-2 rounded border break-all">
+                            {selectedDomain.verification_token}
+                          </div>
                         </div>
                       </div>
 
                       <p className="text-sm text-gray-500 mt-2 italic">
-                        💡 This record verifies you own the domain
+                        💡 此记录用于验证您拥有该域名
                       </p>
                     </div>
                   </div>
@@ -303,34 +372,51 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                     {selectedDomain.is_verified ? '1' : '2'}
                   </div>
                   <div className="flex-1">
-                    <h5 className="font-bold mb-2">Add CNAME Record</h5>
+                    <h5 className="font-bold mb-2">添加 CNAME 记录</h5>
                     <p className="text-sm text-gray-600 mb-3">
-                      Point your domain to Miaobu's ESA edge network
+                      将您的域名指向 Miaobu 边缘网络
                     </p>
 
-                    <div className="bg-gray-50 p-3 rounded font-mono text-sm">
-                      <div className="grid grid-cols-2 gap-2 mb-2">
+                    <div className="bg-gray-50 p-3 rounded font-mono text-sm space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <span className="text-gray-600">Type:</span>{' '}
+                          <span className="text-gray-600">类型：</span>{' '}
                           <span className="font-bold">CNAME</span>
                         </div>
                         <div>
-                          <span className="text-gray-600">TTL:</span> 3600
+                          <span className="text-gray-600">TTL：</span> 3600
                         </div>
                       </div>
-                      <div className="mb-1">
-                        <span className="text-gray-600">Name:</span> {selectedDomain.domain}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-gray-600">记录名称：</span>
+                          <CopyButton
+                            text={selectedDomain.domain}
+                            fieldName="cname-name"
+                            label="CNAME 记录名称"
+                          />
+                        </div>
+                        <div className="bg-white p-2 rounded border break-all">
+                          {selectedDomain.domain}
+                        </div>
                       </div>
                       <div>
-                        <span className="text-gray-600">Value:</span>{' '}
-                        <span className="font-bold text-blue-600">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-gray-600">记录值：</span>
+                          <CopyButton
+                            text={selectedDomain.cname_target || 'cname.metavm.tech'}
+                            fieldName="cname-value"
+                            label="CNAME 记录值"
+                          />
+                        </div>
+                        <div className="bg-white p-2 rounded border break-all font-bold text-blue-600">
                           {selectedDomain.cname_target || 'cname.metavm.tech'}
-                        </span>
+                        </div>
                       </div>
                     </div>
 
                     <p className="text-sm text-gray-500 mt-2 italic">
-                      💡 This routes traffic through ESA for better performance and automatic SSL
+                      💡 通过边缘网络路由流量以获得更好的性能和自动 SSL
                     </p>
                   </div>
                 </div>
@@ -340,15 +426,15 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
             {/* DNS Status */}
             {dnsStatus && (
               <div className="mb-6 border rounded-lg p-4">
-                <h4 className="font-bold mb-3">Current DNS Status</h4>
+                <h4 className="font-bold mb-3">当前 DNS 状态</h4>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <span className="text-gray-600">TXT Record:</span>{' '}
-                    {dnsStatus.txt_verification?.verified ? '✅ Found' : '❌ Not Found'}
+                    <span className="text-gray-600">TXT 记录：</span>{' '}
+                    {dnsStatus.txt_verification?.verified ? '✅ 已找到' : '❌ 未找到'}
                   </div>
                   <div>
-                    <span className="text-gray-600">CNAME Record:</span>{' '}
-                    {dnsStatus.cname_status?.verified ? '✅ Correct' : '⏳ Pending'}
+                    <span className="text-gray-600">CNAME 记录：</span>{' '}
+                    {dnsStatus.cname_status?.verified ? '✅ 正确' : '⏳ 待处理'}
                   </div>
                 </div>
 
@@ -364,15 +450,15 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
             {selectedDomain.is_verified && (
               <div className="mb-6 border rounded-lg p-4 bg-blue-50">
                 <h4 className="font-bold mb-2 flex items-center gap-2">
-                  🔒 SSL Certificate (Automatic via ESA)
+                  🔒 SSL 证书（自动配置）
                 </h4>
                 <p className="text-sm text-gray-700 mb-2">
-                  SSL certificates are automatically provisioned and managed by Aliyun ESA.
-                  HTTPS will be available within a few minutes after domain verification.
+                  SSL 证书将在域名验证后自动配置和管理。
+                  HTTPS 将在域名验证后几分钟内可用。
                 </p>
                 <div className="grid grid-cols-2 gap-4 text-sm mt-3">
                   <div>
-                    <span className="text-gray-600">ESA Status:</span>{' '}
+                    <span className="text-gray-600">边缘加速状态：</span>{' '}
                     <span
                       className={`font-medium ${
                         selectedDomain.esa_status === 'online'
@@ -380,14 +466,33 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                           : 'text-yellow-600'
                       }`}
                     >
-                      {selectedDomain.esa_status === 'online' ? '✅ Online' : '⏳ Provisioning'}
+                      {selectedDomain.esa_status === 'online' ? '✅ 在线' : '⏳ 配置中'}
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-600">HTTPS:</span>{' '}
-                    {selectedDomain.esa_status === 'online' ? '✅ Enabled' : '⏳ Pending'}
+                    <span className="text-gray-600">HTTPS：</span>{' '}
+                    {selectedDomain.ssl_status === 'active' ? '✅ 就绪' :
+                     selectedDomain.ssl_status === 'issuing' ? '⏳ 签发中' :
+                     selectedDomain.ssl_status === 'verifying' ? '⏳ 验证中' : '⏳ 待处理'}
                   </div>
                 </div>
+
+                {/* Refresh SSL Status Button (only show if not active) */}
+                {selectedDomain.ssl_status !== 'active' && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => handleRefreshSSL(selectedDomain.id)}
+                      disabled={refreshingSSL}
+                      className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
+                    >
+                      {refreshingSSL ? '⏳ 检查中...' : '🔄 刷新 SSL 状态'}
+                    </button>
+                    <p className="text-xs text-gray-600 mt-2 text-center">
+                      SSL 证书配置通常需要 5-30 分钟
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -398,7 +503,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                 onClick={() => handleCheckDNS(selectedDomain.id)}
                 className="px-4 py-2 border rounded-lg hover:bg-gray-50"
               >
-                🔄 Check DNS
+                🔄 检查 DNS
               </button>
               {!selectedDomain.is_verified && (
                 <button
@@ -407,7 +512,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                   disabled={verifyMutation.isPending}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                 >
-                  {verifyMutation.isPending ? 'Verifying...' : '✓ Verify Domain'}
+                  {verifyMutation.isPending ? '验证中...' : '✓ 验证域名'}
                 </button>
               )}
               {selectedDomain.is_verified && (
@@ -419,7 +524,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                   }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
-                  📦 Manage Deployments
+                  📦 管理部署
                 </button>
               )}
               <button
@@ -431,7 +536,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                 }}
                 className="px-4 py-2 border rounded-lg hover:bg-gray-50"
               >
-                Close
+                关闭
               </button>
             </div>
           </div>
@@ -443,15 +548,15 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
           <div className="bg-white rounded-lg p-6 max-w-3xl w-full my-8">
             <h3 className="text-xl font-bold mb-4">
-              Manage Deployments: {selectedDomain.domain}
+              管理部署：{selectedDomain.domain}
             </h3>
 
             {/* Auto-Update Toggle */}
             <div className="mb-6 flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
               <div>
-                <div className="font-medium">Auto-Deploy</div>
+                <div className="font-medium">自动部署</div>
                 <div className="text-sm text-gray-600">
-                  Automatically deploy new successful builds to this domain
+                  自动将新的成功构建部署到此域名
                 </div>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
@@ -468,14 +573,14 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
             {/* Deployments List */}
             <div className="space-y-3 mb-6">
               <div className="flex items-center justify-between">
-                <h4 className="font-bold">Deployments</h4>
+                <h4 className="font-bold">部署列表</h4>
                 {!selectedDomain.edge_kv_synced && (
                   <button
                     type="button"
                     onClick={() => handleSyncEdgeKV(selectedDomain.id)}
                     className="px-3 py-1 text-sm border border-yellow-400 text-yellow-700 rounded-lg hover:bg-yellow-50"
                   >
-                    🔄 Sync Edge KV
+                    🔄 同步边缘配置
                   </button>
                 )}
               </div>
@@ -496,7 +601,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                           </span>
                           {dep.is_active && (
                             <span className="px-2 py-1 bg-green-600 text-white text-xs rounded-full font-medium">
-                              ✓ Live
+                              ✓ 在线
                             </span>
                           )}
                         </div>
@@ -513,7 +618,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                           disabled={promoteMutation.isPending}
                           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
                         >
-                          {promoteMutation.isPending ? 'Promoting...' : 'Promote to Live'}
+                          {promoteMutation.isPending ? '上线中...' : '上线此部署'}
                         </button>
                       )}
                     </div>
@@ -521,7 +626,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                 ))
               ) : (
                 <div className="text-center py-8 border-2 border-dashed rounded-lg">
-                  <p className="text-gray-600">No deployments found</p>
+                  <p className="text-gray-600">暂无部署记录</p>
                 </div>
               )}
             </div>
@@ -536,7 +641,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                 }}
                 className="px-4 py-2 border rounded-lg hover:bg-gray-50"
               >
-                Close
+                关闭
               </button>
             </div>
           </div>
@@ -554,41 +659,52 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                     <span className="font-mono font-bold text-lg">{domain.domain}</span>
                     {domain.is_verified ? (
                       <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">
-                        ✓ Verified
+                        ✓ 已验证
                       </span>
                     ) : (
                       <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full font-medium">
-                        ⏳ Pending
+                        ⏳ 待验证
                       </span>
                     )}
-                    {domain.esa_status === 'online' && (
-                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">
+                    {/* SSL Status Badge */}
+                    {domain.ssl_status === 'active' && (
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">
                         🔒 HTTPS
+                      </span>
+                    )}
+                    {domain.ssl_status === 'issuing' && (
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full font-medium">
+                        ⏳ SSL 签发中
+                      </span>
+                    )}
+                    {domain.ssl_status === 'verifying' && (
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full font-medium">
+                        ⏳ SSL 验证中
                       </span>
                     )}
                     {domain.auto_update_enabled && (
                       <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full font-medium">
-                        🤖 Auto-Deploy
+                        🤖 自动部署
                       </span>
                     )}
                     {domain.edge_kv_synced ? (
                       <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">
-                        ✓ Synced
+                        ✓ 已同步
                       </span>
                     ) : (
                       <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full font-medium">
-                        ⏳ Syncing
+                        ⏳ 同步中
                       </span>
                     )}
                   </div>
                   <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
                     {domain.verified_at && (
-                      <span>Verified: {new Date(domain.verified_at).toLocaleDateString()}</span>
+                      <span>验证时间：{new Date(domain.verified_at).toLocaleDateString('zh-CN')}</span>
                     )}
                     {domain.active_deployment_id && (
-                      <span>Deployment #{domain.active_deployment_id}</span>
+                      <span>部署 #{domain.active_deployment_id}</span>
                     )}
-                    <span className="text-xs">CNAME: {domain.cname_target || 'cname.metavm.tech'}</span>
+                    <span className="text-xs">CNAME：{domain.cname_target || 'cname.metavm.tech'}</span>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -598,7 +714,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                       onClick={() => handleShowDeployments(domain)}
                       className="px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm"
                     >
-                      📦 Deployments
+                      📦 部署管理
                     </button>
                   ) : (
                     <button
@@ -606,7 +722,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                       onClick={() => handleShowInstructions(domain)}
                       className="px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm"
                     >
-                      🔧 Setup DNS
+                      🔧 配置 DNS
                     </button>
                   )}
                   <button
@@ -614,18 +730,18 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                     onClick={() => handleShowInstructions(domain)}
                     className="px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm"
                   >
-                    ⚙️ Configure
+                    ⚙️ 配置
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      if (confirm(`Delete domain ${domain.domain}?`)) {
+                      if (confirm(`确定要删除域名 ${domain.domain} 吗？`)) {
                         deleteMutation.mutate(domain.id)
                       }
                     }}
                     className="px-3 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm"
                   >
-                    🗑️ Delete
+                    🗑️ 删除
                   </button>
                 </div>
               </div>
@@ -633,13 +749,13 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
           ))
         ) : (
           <div className="text-center py-12 border-2 border-dashed rounded-lg">
-            <p className="text-gray-600 mb-4">No custom domains configured</p>
+            <p className="text-gray-600 mb-4">暂无自定义域名</p>
             <button
               type="button"
               onClick={() => setShowAddDomain(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
-              Add Your First Domain
+              添加您的第一个域名
             </button>
           </div>
         )}

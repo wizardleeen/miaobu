@@ -125,16 +125,17 @@ class ApiService {
     return response.data
   }
 
-  async analyzeRepository(owner: string, repo: string, branch?: string) {
+  async analyzeRepository(owner: string, repo: string, branch?: string, rootDirectory?: string) {
     const response = await this.client.get(`/repositories/${owner}/${repo}/analyze`, {
-      params: { branch },
+      params: { branch, root_directory: rootDirectory },
     })
     return response.data
   }
 
-  async importRepository(owner: string, repo: string, branch?: string, customConfig?: any) {
+  async importRepository(owner: string, repo: string, branch?: string, rootDirectory?: string, customConfig?: any) {
     const response = await this.client.post(`/repositories/${owner}/${repo}/import`, {
       branch,
+      root_directory: rootDirectory,
       custom_config: customConfig,
     })
     return response.data
@@ -205,6 +206,11 @@ class ApiService {
 
   async syncEdgeKV(domainId: number) {
     const response = await this.client.post(`/domains/${domainId}/sync-edge-kv`)
+    return response.data
+  }
+
+  async refreshSSLStatus(domainId: number) {
+    const response = await this.client.post(`/domains/${domainId}/refresh-ssl-status`)
     return response.data
   }
 

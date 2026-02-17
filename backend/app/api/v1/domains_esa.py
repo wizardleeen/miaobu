@@ -106,10 +106,15 @@ async def verify_custom_domain(
     Verify custom domain and provision ESA resources.
 
     Steps:
-    1. Create ESA Custom Hostname
-    2. Verify using ESA's verification mechanism
-    3. Set active deployment (default to latest)
-    4. Update Edge KV store
+    1a. Verify domain ownership via DNS TXT record (SECURITY: prevents abuse)
+    1b. Verify CNAME record points to correct target
+    2. Get latest successful deployment
+    3. Provision ESA resources (create Custom Hostname on Aliyun)
+    4. Verify using ESA's verification mechanism
+    5. Update database and Edge KV store
+
+    IMPORTANT: Both TXT and CNAME verification happen BEFORE creating Aliyun resources
+    to prevent resource abuse and ensure domain ownership AND proper DNS configuration.
     """
     domain = db.query(CustomDomain).filter(CustomDomain.id == domain_id).first()
     if not domain:
@@ -129,7 +134,64 @@ async def verify_custom_domain(
             "active_deployment_id": domain.active_deployment_id
         }
 
-    # Step 1: Get latest successful deployment
+    # Step 1: SECURITY - Verify domain ownership and DNS configuration
+    # This prevents anyone from "verifying" domains they don't own
+    # AND prevents wasting Aliyun resources on unverified domains
+
+    # Step 1a: Verify domain ownership via DNS TXT record
+    txt_verification = DNSService.verify_txt_record(
+        domain.domain,
+        domain.verification_token
+    )
+
+    if not txt_verification.get("verified"):
+        return {
+            "success": False,
+            "verified": False,
+            "message": "Domain ownership verification failed. Please add the TXT record to your DNS.",
+            "dns_check": {
+                "txt_record": txt_verification
+            },
+            "instructions": {
+                "step1": f"Add TXT record to your DNS provider",
+                "record_name": f"_miaobu-verification.{domain.domain}",
+                "record_type": "TXT",
+                "record_value": domain.verification_token,
+                "step2": "Wait 5-10 minutes for DNS propagation",
+                "step3": "Click 'Verify Domain' again"
+            }
+        }
+
+    # Step 1b: Verify CNAME record points to correct target
+    cname_target = domain.cname_target or "cname.metavm.tech"
+    cname_verification = DNSService.verify_cname_record(
+        domain.domain,
+        cname_target
+    )
+
+    if not cname_verification.get("verified"):
+        # CNAME not configured yet - provide instructions
+        return {
+            "success": False,
+            "verified": False,
+            "message": "Domain ownership verified, but CNAME record not configured correctly.",
+            "dns_check": {
+                "txt_record": txt_verification,
+                "cname_record": cname_verification
+            },
+            "instructions": {
+                "step1": "✓ TXT record verified",
+                "step2": f"Add CNAME record to your DNS provider",
+                "record_name": domain.domain,
+                "record_type": "CNAME",
+                "record_value": cname_target,
+                "step3": "Wait 5-10 minutes for DNS propagation",
+                "step4": "Click 'Verify Domain' again",
+                "note": cname_verification.get("message", "")
+            }
+        }
+
+    # Step 2: Get latest successful deployment
     latest_deployment = db.query(Deployment).filter(
         Deployment.project_id == project.id,
         Deployment.status == DeploymentStatus.DEPLOYED
@@ -142,7 +204,8 @@ async def verify_custom_domain(
             "message": "No successful deployment found. Deploy your project first."
         }
 
-    # Step 2: Provision ESA resources (creates Custom Hostname)
+    # Step 3: NOW provision ESA resources (only after DNS verification passed)
+    # This prevents creating Aliyun resources for domains the user doesn't own
     esa_service = ESAService()
     provision_result = esa_service.provision_custom_domain(
         domain=domain.domain,
@@ -160,7 +223,7 @@ async def verify_custom_domain(
             "error": provision_result.get('error')
         }
 
-    # Step 3: Verify custom hostname using ESA's verification
+    # Step 4: Verify custom hostname using ESA's verification
     custom_hostname_id = provision_result.get('custom_hostname_id')
     icp_required = False
 
@@ -183,7 +246,7 @@ async def verify_custom_domain(
             if status_result.get('icp_required'):
                 icp_required = True
 
-    # Step 4: Update database
+    # Step 5: Update database (DNS ownership confirmed, ESA resources created)
     domain.is_verified = True
     domain.verified_at = datetime.utcnow()
     domain.esa_saas_id = provision_result.get('custom_hostname_id')  # Store custom hostname ID
@@ -191,7 +254,7 @@ async def verify_custom_domain(
     domain.active_deployment_id = latest_deployment.id
     domain.edge_kv_synced = True
     domain.edge_kv_synced_at = datetime.utcnow()
-    domain.ssl_status = SSLStatus.ISSUING  # ESA will provision SSL automatically
+    domain.ssl_status = SSLStatus.VERIFYING  # Set to VERIFYING initially, will be updated to ISSUING/ACTIVE
 
     db.commit()
 
@@ -202,6 +265,8 @@ async def verify_custom_domain(
         "active_deployment_id": latest_deployment.id,
         "cname_target": domain.cname_target,
         "edge_kv_synced": True,
+        "ssl_status": domain.ssl_status.value,
+        "ssl_note": "SSL certificate is being provisioned by Aliyun ESA. This may take 5-30 minutes. Use the 'Refresh SSL Status' button to check progress."
     }
 
     if icp_required:
@@ -221,6 +286,109 @@ async def verify_custom_domain(
         }
 
     return response
+
+
+@router.post("/{domain_id}/refresh-ssl-status")
+async def refresh_ssl_status(
+    domain_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Refresh SSL certificate status from Aliyun ESA.
+
+    Queries ESA API to get the latest SSL certificate status and updates the database.
+    Use this to check if certificate has been issued after domain verification.
+    """
+    domain = db.query(CustomDomain).filter(CustomDomain.id == domain_id).first()
+    if not domain:
+        raise NotFoundException("Custom domain not found")
+
+    # Verify project ownership
+    project = domain.project
+    if project.user_id != current_user.id:
+        raise ForbiddenException("You don't have access to this domain")
+
+    if not domain.is_verified:
+        return {
+            "success": False,
+            "message": "Domain is not verified yet. Verify domain first."
+        }
+
+    if not domain.esa_saas_id:
+        return {
+            "success": False,
+            "message": "ESA SaaS ID not found. Domain may not be provisioned on ESA."
+        }
+
+    # Get status from ESA
+    esa_service = ESAService()
+
+    # Get custom hostname status (includes SSL cert status)
+    hostname_status = esa_service.get_custom_hostname_status(domain.esa_saas_id)
+
+    if not hostname_status.get('success'):
+        return {
+            "success": False,
+            "message": f"Failed to get status from ESA: {hostname_status.get('error')}",
+            "error": hostname_status.get('error')
+        }
+
+    # Update domain with latest status
+    esa_status = hostname_status.get('status', '').lower()
+    cert_apply_message = hostname_status.get('cert_apply_message', '').lower()
+    cert_status_ok = hostname_status.get('cert_status', '').lower()  # This is 'ok' or 'failed'
+    ssl_flag = hostname_status.get('ssl_flag')
+
+    # Map ESA cert_apply_message to our SSLStatus enum
+    # cert_apply_message values: 'issued', 'issuing', 'applying', 'pending_issue', 'verifying', etc.
+    if cert_apply_message in ['issued'] and cert_status_ok == 'ok':
+        domain.ssl_status = SSLStatus.ACTIVE
+    elif cert_apply_message in ['issuing', 'pending_issue', 'applying']:
+        domain.ssl_status = SSLStatus.ISSUING
+    elif cert_apply_message in ['verifying', 'pending_validation', '']:
+        domain.ssl_status = SSLStatus.VERIFYING
+    else:
+        domain.ssl_status = SSLStatus.PENDING
+
+    # Update ESA status
+    domain.esa_status = esa_status
+
+    # Update cert expiry if available
+    cert_not_after = hostname_status.get('cert_not_after')
+    if cert_not_after:
+        try:
+            from datetime import datetime
+            # Parse timestamp (format may vary, handle common formats)
+            if isinstance(cert_not_after, (int, float)):
+                # Unix timestamp
+                domain.ssl_expires_at = datetime.fromtimestamp(cert_not_after)
+            elif isinstance(cert_not_after, str):
+                # ISO format or other string format
+                from dateutil import parser
+                domain.ssl_expires_at = parser.parse(cert_not_after)
+        except Exception as e:
+            print(f"Failed to parse cert expiry date: {e}")
+
+    db.commit()
+
+    return {
+        "success": True,
+        "domain": domain.domain,
+        "ssl_status": domain.ssl_status.value,
+        "esa_status": domain.esa_status,
+        "ssl_flag": ssl_flag,
+        "cert_status": cert_status_ok,  # 'ok' or 'failed'
+        "cert_apply_message": cert_apply_message,  # 'issued', 'issuing', etc.
+        "cert_expires_at": domain.ssl_expires_at.isoformat() if domain.ssl_expires_at else None,
+        "is_https_ready": domain.ssl_status == SSLStatus.ACTIVE,
+        "message": "SSL status updated from ESA",
+        "details": {
+            "hostname": hostname_status.get('hostname'),
+            "offline_reason": hostname_status.get('offline_reason'),
+            "icp_required": hostname_status.get('icp_required', False)
+        }
+    }
 
 
 @router.get("/{domain_id}/deployments")
@@ -459,13 +627,18 @@ async def delete_custom_domain(
         raise ForbiddenException("You don't have access to this domain")
 
     # Deprovision ESA resources
-    if domain.is_verified and domain.domain_type == "esa":
+    if domain.is_verified and domain.domain_type == "esa" and domain.esa_saas_id:
         esa_service = ESAService()
-        deprovision_result = esa_service.deprovision_custom_domain(domain.domain)
 
-        if not deprovision_result['success']:
-            # Log error but don't fail deletion
-            print(f"Warning: Failed to deprovision ESA resources: {deprovision_result.get('message')}")
+        # Delete SaaS manager (Custom Hostname)
+        saas_result = esa_service.delete_saas_manager(domain.esa_saas_id)
+        if not saas_result['success']:
+            print(f"Warning: Failed to delete SaaS manager: {saas_result.get('error')}")
+
+        # Delete Edge KV mapping
+        kv_result = esa_service.delete_edge_kv_mapping(domain.domain)
+        if not kv_result['success']:
+            print(f"Warning: Failed to delete Edge KV mapping: {kv_result.get('error')}")
 
     # Delete from database
     db.delete(domain)

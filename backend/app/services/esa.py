@@ -45,7 +45,8 @@ class ESAService:
         self,
         action: str,
         params: Dict[str, Any],
-        version: str = "2024-09-10"
+        version: str = "2024-09-10",
+        method: str = 'POST'
     ) -> Dict[str, Any]:
         """
         Make a request to ESA API.
@@ -54,6 +55,7 @@ class ESAService:
             action: API action name
             params: Request parameters
             version: API version
+            method: HTTP method (POST, GET, etc.)
 
         Returns:
             API response as dictionary
@@ -73,7 +75,7 @@ class ESAService:
             request.set_version(version)
             request.set_action_name(action)
             request.set_accept_format('json')
-            request.set_method('POST')
+            request.set_method(method)
 
             for key, value in params.items():
                 request.add_query_param(key, value)
@@ -305,7 +307,7 @@ class ESAService:
 
         params = {
             'SiteId': self.site_id,
-            'CustomHostnameId': custom_hostname_id,
+            'HostnameId': custom_hostname_id,
         }
 
         result = self._make_request('DeleteCustomHostname', params)
@@ -356,6 +358,7 @@ class ESAService:
                 'offline_reason': model.get('OfflineReason'),
                 'ssl_flag': model.get('SslFlag'),
                 'cert_status': model.get('CertStatus'),
+                'cert_apply_message': model.get('CertApplyMessage'),  # The actual cert status: 'issued', 'issuing', etc.
                 'cert_type': model.get('CertType'),
                 'cert_not_after': model.get('CertNotAfter'),
                 'icp_required': model.get('OfflineReason') == 'missing_icp',
@@ -475,6 +478,8 @@ class ESAService:
         """
         Delete key from Edge KV store.
 
+        Note: Aliyun ESA DeleteKv API uses GET method (not POST or DELETE).
+
         Args:
             key: Domain name
 
@@ -492,7 +497,8 @@ class ESAService:
             'Key': key,
         }
 
-        result = self._make_request('DeleteKv', params)
+        # DeleteKv API requires GET method
+        result = self._make_request('DeleteKv', params, method='GET')
 
         if result['success']:
             return {
@@ -677,16 +683,17 @@ class ESAService:
 
         return result
 
-    def deprovision_custom_domain(self, domain: str) -> Dict[str, Any]:
+    def deprovision_custom_domain(self, domain: str, custom_hostname_id: str) -> Dict[str, Any]:
         """
         Full deprovisioning flow for custom domain.
 
         Steps:
         1. Delete Edge KV mapping
-        2. Delete SaaS manager
+        2. Delete SaaS manager (Custom Hostname)
 
         Args:
             domain: Custom domain name
+            custom_hostname_id: ESA Custom Hostname ID (esa_saas_id)
 
         Returns:
             Deprovisioning result
@@ -698,8 +705,8 @@ class ESAService:
         if not kv_result['success']:
             errors.append(f"KV deletion: {kv_result.get('error')}")
 
-        # Step 2: Delete SaaS manager
-        saas_result = self.delete_saas_manager(domain)
+        # Step 2: Delete SaaS manager (Custom Hostname)
+        saas_result = self.delete_saas_manager(custom_hostname_id)
         if not saas_result['success']:
             errors.append(f"SaaS deletion: {saas_result.get('error')}")
 
