@@ -19,6 +19,7 @@ class DeploymentStatus(str, Enum):
     UPLOADING = "uploading"
     DEPLOYING = "deploying"
     DEPLOYED = "deployed"
+    PURGED = "purged"
     FAILED = "failed"
     CANCELLED = "cancelled"
 

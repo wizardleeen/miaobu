@@ -570,7 +570,7 @@ class ESAService:
                     'updated_at': datetime.utcnow().isoformat(),
                 }
             else:
-                oss_path = f"projects/{project.slug}"
+                oss_path = f"projects/{project.slug}/{deployment_id}"
                 kv_value = {
                     'type': 'static',
                     'project_slug': project.slug,

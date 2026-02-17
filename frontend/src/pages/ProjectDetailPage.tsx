@@ -20,10 +20,10 @@ export default function ProjectDetailPage() {
 
   const deployMutation = useMutation({
     mutationFn: () => api.triggerDeployment(Number(projectId)),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      await refetch()
       setIsDeploying(false)
-      refetch()
     },
     onError: () => {
       setIsDeploying(false)

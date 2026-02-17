@@ -53,10 +53,9 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
         log_callback("STEP 5: UPLOADING TO OSS")
         log_callback("=" * 60)
 
-        # NEW: Simple path structure based on project slug
-        # Path: /projects/{slug}/
-        # This overwrites previous deployments (latest deployment wins)
-        oss_prefix = f"projects/{project.slug}/"
+        # Path: /projects/{slug}/{deployment_id}/
+        # Each deployment gets its own path for multi-version support
+        oss_prefix = f"projects/{project.slug}/{deployment_id}/"
 
         log_callback(f"OSS path: {oss_prefix}")
         log_callback(f"Subdomain: {project.slug}.{settings.cdn_base_domain}")
@@ -131,7 +130,8 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
 
             if auto_update_domains:
                 log_callback(f"Found {len(auto_update_domains)} domain(s) with auto-update enabled")
-                esa_service = ESAService()
+                if 'esa_service' not in locals():
+                    esa_service = ESAService()
 
                 for domain in auto_update_domains:
                     log_callback(f"  Updating {domain.domain}...")
@@ -169,7 +169,7 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
         log_callback("=" * 60)
         log_callback(f"Deployment URL: {deployment.deployment_url}")
 
-        # Purge ESA cache for the subdomain
+        # Purge ESA cache for the subdomain and all verified custom domains
         try:
             log_callback("")
             log_callback("Purging ESA cache...")
@@ -177,17 +177,33 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
                 from app.services.esa import ESAService
                 esa_service = ESAService()
 
-            hostname = f"{project.slug}.{settings.cdn_base_domain}"
-            purge_result = esa_service.purge_host_cache([hostname])
+            # Collect all hostnames to purge
+            hostnames_to_purge = [f"{project.slug}.{settings.cdn_base_domain}"]
+
+            from app.models import CustomDomain as CD
+            all_verified_domains = db.query(CD).filter(
+                CD.project_id == project.id,
+                CD.is_verified == True,
+            ).all()
+            for cd in all_verified_domains:
+                hostnames_to_purge.append(cd.domain)
+
+            purge_result = esa_service.purge_host_cache(hostnames_to_purge)
 
             if purge_result.get('success'):
-                log_callback(f"✓ ESA cache purged for {hostname}")
+                log_callback(f"✓ ESA cache purged for {', '.join(hostnames_to_purge)}")
             else:
                 log_callback(f"⚠️  ESA cache purge failed: {purge_result.get('error', 'Unknown error')}")
         except Exception as e:
             log_callback(f"⚠️  ESA cache purge failed: {str(e)}")
 
         log_callback("")
+
+        # Trigger cleanup of old deployments in the background
+        try:
+            cleanup_old_deployments.delay(project.id)
+        except Exception as e:
+            log_callback(f"⚠️  Failed to schedule cleanup: {str(e)}")
 
         return {
             'success': True,
@@ -215,7 +231,7 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
 
 
 @app.task(name='tasks.deploy.cleanup_old_deployments')
-def cleanup_old_deployments(project_id: int, keep_count: int = 10):
+def cleanup_old_deployments(project_id: int, keep_count: int = 3):
     """
     Cleanup old deployments for a project.
 
@@ -230,7 +246,7 @@ def cleanup_old_deployments(project_id: int, keep_count: int = 10):
         return {'error': 'Database not available'}
 
     try:
-        from app.models import Project, Deployment
+        from app.models import Project, Deployment, CustomDomain
 
         # Get project
         project = db.query(Project).filter(Project.id == project_id).first()
@@ -247,30 +263,42 @@ def cleanup_old_deployments(project_id: int, keep_count: int = 10):
         if len(deployments) <= keep_count:
             return {'message': f'Only {len(deployments)} deployments, nothing to clean up'}
 
-        deployments_to_delete = deployments[keep_count:]
+        # Collect deployment IDs that are actively serving custom domains
+        protected_ids = set()
+        active_domains = db.query(CustomDomain).filter(
+            CustomDomain.project_id == project_id,
+            CustomDomain.is_verified == True,
+            CustomDomain.active_deployment_id.isnot(None),
+        ).all()
+        for cd in active_domains:
+            protected_ids.add(cd.active_deployment_id)
+
+        deployments_to_delete = [
+            d for d in deployments[keep_count:]
+            if d.id not in protected_ids
+        ]
 
         # Initialize OSS service
         oss_service = OSSService()
 
         deleted_count = 0
         for deployment in deployments_to_delete:
-            # Delete from OSS
-            oss_prefix = f"{project.user_id}/{project.id}/{deployment.commit_sha}/"
+            # Delete from OSS using per-deployment path
+            oss_prefix = f"projects/{project.slug}/{deployment.id}/"
             try:
                 files_deleted = oss_service.delete_directory(oss_prefix)
+                deployment.status = DeploymentStatus.PURGED
                 deleted_count += 1
                 print(f"Deleted deployment {deployment.id} from OSS ({files_deleted} files)")
             except Exception as e:
                 print(f"Failed to delete deployment {deployment.id} from OSS: {e}")
-
-            # Optionally delete deployment record from database
-            # db.delete(deployment)
 
         db.commit()
 
         return {
             'success': True,
             'deployments_cleaned': deleted_count,
+            'deployments_protected': len(protected_ids),
             'kept_count': keep_count
         }
 

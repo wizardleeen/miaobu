@@ -21,6 +21,7 @@ class DeploymentStatus(str, enum.Enum):
     UPLOADING = "uploading"
     DEPLOYING = "deploying"
     DEPLOYED = "deployed"
+    PURGED = "purged"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
@@ -181,7 +182,7 @@ class CustomDomain(Base):
     active_deployment_id = Column(Integer, ForeignKey("deployments.id"), index=True)  # Which deployment to serve
     edge_kv_synced = Column(Boolean, default=False, nullable=False)  # Whether Edge KV is up to date
     edge_kv_synced_at = Column(DateTime(timezone=True))  # Last successful KV sync time
-    auto_update_enabled = Column(Boolean, default=False, nullable=False)  # Auto-promote new deployments
+    auto_update_enabled = Column(Boolean, default=True, nullable=False)  # Auto-promote new deployments
 
     # Domain type: 'cdn' (legacy) or 'esa' (new)
     domain_type = Column(String(20), default="esa", nullable=False)

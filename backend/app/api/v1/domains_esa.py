@@ -4,6 +4,7 @@ Custom Domains API with ESA (Edge Security Acceleration) support.
 This replaces the legacy CDN-based custom domain management.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
@@ -468,10 +469,14 @@ async def list_domain_deployments(
     }
 
 
+class PromoteDeploymentRequest(BaseModel):
+    deployment_id: int
+
+
 @router.post("/{domain_id}/promote-deployment")
 async def promote_deployment(
     domain_id: int,
-    deployment_id: int,
+    body: PromoteDeploymentRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -493,7 +498,7 @@ async def promote_deployment(
         raise BadRequestException("Domain must be verified before promoting deployments")
 
     # Get deployment
-    deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
+    deployment = db.query(Deployment).filter(Deployment.id == body.deployment_id).first()
     if not deployment:
         raise NotFoundException("Deployment not found")
 
@@ -536,10 +541,14 @@ async def promote_deployment(
     }
 
 
+class DomainSettingsUpdate(BaseModel):
+    auto_update_enabled: Optional[bool] = None
+
+
 @router.post("/{domain_id}/settings")
 async def update_domain_settings(
     domain_id: int,
-    auto_update_enabled: Optional[bool] = None,
+    body: DomainSettingsUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -559,8 +568,8 @@ async def update_domain_settings(
         raise ForbiddenException("You don't have access to this domain")
 
     # Update settings
-    if auto_update_enabled is not None:
-        domain.auto_update_enabled = auto_update_enabled
+    if body.auto_update_enabled is not None:
+        domain.auto_update_enabled = body.auto_update_enabled
 
     db.commit()
 
