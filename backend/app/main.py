@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from datetime import datetime
 
 from .config import get_settings
-from .api.v1 import auth, projects, deployments, repositories, projects_deploy, webhooks
+from .api.v1 import auth, projects, deployments, repositories, projects_deploy, webhooks, env_vars
 from .api.v1 import domains_esa as domains
 from .schemas import HealthCheck
 
@@ -64,6 +64,7 @@ app.include_router(repositories.router, prefix="/api/v1")
 app.include_router(projects_deploy.router, prefix="/api/v1")
 app.include_router(webhooks.router, prefix="/api/v1")
 app.include_router(domains.router, prefix="/api/v1")
+app.include_router(env_vars.router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Root"])

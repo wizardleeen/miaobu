@@ -7,7 +7,7 @@ Handles:
 - SSL certificate management (automatic via ESA)
 """
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 from aliyunsdkcore.client import AcsClient
 from aliyunsdkcore.request import CommonRequest
@@ -517,7 +517,9 @@ class ESAService:
         user_id: int,
         project_id: int,
         deployment_id: int,
-        commit_sha: str
+        commit_sha: str,
+        project_type: str = "static",
+        fc_endpoint: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Update Edge KV store with domain-to-path mapping.
@@ -533,12 +535,12 @@ class ESAService:
             project_id: Project ID
             deployment_id: Active deployment ID
             commit_sha: Deployment commit SHA
+            project_type: "static" or "python"
+            fc_endpoint: FC endpoint URL (required for Python projects)
 
         Returns:
             Update result
         """
-        # Build OSS path - NEW: Use projects/{slug}/ format
-        # We need to query the database to get the project slug
         from ..database import SessionLocal
         from ..models import Project
 
@@ -551,29 +553,45 @@ class ESAService:
                     'error': f'Project {project_id} not found'
                 }
 
-            oss_path = f"projects/{project.slug}"
+            # Determine project type from model if not explicitly passed
+            effective_type = project_type
+            if hasattr(project, 'project_type') and project.project_type:
+                effective_type = project.project_type.value if hasattr(project.project_type, 'value') else str(project.project_type)
+
+            effective_fc_endpoint = fc_endpoint or (project.fc_endpoint_url if hasattr(project, 'fc_endpoint_url') else None)
+
+            if effective_type == "python":
+                kv_value = {
+                    'type': 'python',
+                    'fc_endpoint': effective_fc_endpoint,
+                    'project_slug': project.slug,
+                    'deployment_id': deployment_id,
+                    'commit_sha': commit_sha,
+                    'updated_at': datetime.utcnow().isoformat(),
+                }
+            else:
+                oss_path = f"projects/{project.slug}"
+                kv_value = {
+                    'type': 'static',
+                    'project_slug': project.slug,
+                    'deployment_id': deployment_id,
+                    'commit_sha': commit_sha,
+                    'oss_path': oss_path,
+                    'updated_at': datetime.utcnow().isoformat(),
+                }
         finally:
             db.close()
 
-        # Build KV value
-        kv_value = {
-            'project_slug': project.slug,
-            'deployment_id': deployment_id,
-            'commit_sha': commit_sha,
-            'oss_path': oss_path,
-            'updated_at': datetime.utcnow().isoformat()
-        }
-
-        # Put to Edge KV
         result = self.put_edge_kv(domain, json.dumps(kv_value))
 
         if result['success']:
             return {
                 'success': True,
                 'domain': domain,
-                'oss_path': oss_path,
+                'oss_path': kv_value.get('oss_path'),
+                'fc_endpoint': kv_value.get('fc_endpoint'),
                 'deployment_id': deployment_id,
-                'message': f'Edge KV mapping updated for {domain}'
+                'message': f'Edge KV mapping updated for {domain}',
             }
 
         return result
@@ -726,9 +744,9 @@ class ESAService:
 
     # ==================== Cache Management ====================
 
-    def purge_cache(self, paths: list[str]) -> Dict[str, Any]:
+    def purge_cache(self, paths: List[str]) -> Dict[str, Any]:
         """
-        Purge ESA cache for specific paths.
+        Purge ESA cache for specific file URLs.
 
         Args:
             paths: List of full URLs to purge
@@ -745,16 +763,49 @@ class ESAService:
         params = {
             'SiteId': self.site_id,
             'Type': 'file',
-            'Content': '\n'.join(paths),
+            'Content': json.dumps({'Files': paths}),
         }
 
-        result = self._make_request('PurgeCache', params)
+        result = self._make_request('PurgeCaches', params)
 
         if result['success']:
             return {
                 'success': True,
                 'paths': paths,
                 'message': f'Cache purged for {len(paths)} paths'
+            }
+
+        return result
+
+    def purge_host_cache(self, hostnames: List[str]) -> Dict[str, Any]:
+        """
+        Purge all ESA cache for given hostnames.
+
+        Args:
+            hostnames: List of hostnames (e.g., ["slug.metavm.tech"])
+
+        Returns:
+            Purge result
+        """
+        if not self.site_id:
+            return {
+                'success': False,
+                'error': 'ESA site ID not configured'
+            }
+
+        params = {
+            'SiteId': self.site_id,
+            'Type': 'hostname',
+            'Content': json.dumps({'Hostnames': hostnames}),
+        }
+
+        result = self._make_request('PurgeCaches', params)
+
+        if result['success']:
+            return {
+                'success': True,
+                'hostnames': hostnames,
+                'message': f'Cache purged for {", ".join(hostnames)}'
             }
 
         return result

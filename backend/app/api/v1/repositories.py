@@ -9,6 +9,7 @@ from ...services.github import GitHubService
 from ...core.security import get_current_user
 from ...core.exceptions import BadRequestException, ConflictException
 from ...api.v1.projects import generate_slug
+from ...config import get_settings
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
 
@@ -125,6 +126,7 @@ async def import_repository(
     Optionally accepts custom configuration to override auto-detected settings.
     Supports monorepo projects via the root_directory parameter.
     """
+    settings = get_settings()
     try:
         # Analyze repository
         analysis = await GitHubService.analyze_repository(
@@ -138,6 +140,7 @@ async def import_repository(
         repo_info = analysis["repository"]
         build_config = analysis["build_config"]
         detected_root_dir = analysis.get("root_directory", "")
+        detected_project_type = analysis.get("project_type", "static")
 
         # Check if already imported
         existing = db.query(Project).filter(
@@ -150,25 +153,21 @@ async def import_repository(
 
         # Use custom config if provided, otherwise use detected config
         if custom_config:
-            build_command = custom_config.get("build_command", build_config["build_command"])
-            install_command = custom_config.get("install_command", build_config["install_command"])
-            output_directory = custom_config.get("output_directory", build_config["output_directory"])
-            node_version = custom_config.get("node_version", build_config["node_version"])
             project_name = custom_config.get("name", repo_info["name"])
             root_dir = custom_config.get("root_directory", detected_root_dir)
+            project_type_str = custom_config.get("project_type", detected_project_type)
         else:
-            build_command = build_config["build_command"]
-            install_command = build_config["install_command"]
-            output_directory = build_config["output_directory"]
-            node_version = build_config["node_version"]
             project_name = repo_info["name"]
             root_dir = detected_root_dir
+            project_type_str = detected_project_type
+
+        project_type = "python" if project_type_str == "python" else "static"
 
         # Generate unique slug
         slug = generate_slug(project_name, current_user.id, db)
 
-        # Create project
-        project = Project(
+        # Build project kwargs
+        project_kwargs = dict(
             user_id=current_user.id,
             github_repo_id=repo_info["id"],
             github_repo_name=repo_info["full_name"],
@@ -177,13 +176,36 @@ async def import_repository(
             name=project_name,
             slug=slug,
             root_directory=root_dir,
-            build_command=build_command,
-            install_command=install_command,
-            output_directory=output_directory,
-            node_version=node_version,
-            oss_path=f"{current_user.id}/{slug}/",
-            default_domain=f"{slug}.miaobu.app"
+            project_type=project_type,
+            oss_path=f"projects/{slug}/",
+            default_domain=f"{slug}.{settings.cdn_base_domain}",
         )
+
+        if project_type == "python":
+            # Python-specific fields
+            if custom_config:
+                project_kwargs["python_version"] = custom_config.get("python_version", build_config.get("python_version", "3.11"))
+                project_kwargs["start_command"] = custom_config.get("start_command", build_config.get("start_command", ""))
+                project_kwargs["python_framework"] = custom_config.get("python_framework", build_config.get("python_framework"))
+            else:
+                project_kwargs["python_version"] = build_config.get("python_version", "3.11")
+                project_kwargs["start_command"] = build_config.get("start_command", "")
+                project_kwargs["python_framework"] = build_config.get("python_framework")
+        else:
+            # Static/Node.js fields
+            if custom_config:
+                project_kwargs["build_command"] = custom_config.get("build_command", build_config.get("build_command", "npm run build"))
+                project_kwargs["install_command"] = custom_config.get("install_command", build_config.get("install_command", "npm install"))
+                project_kwargs["output_directory"] = custom_config.get("output_directory", build_config.get("output_directory", "dist"))
+                project_kwargs["node_version"] = custom_config.get("node_version", build_config.get("node_version", "18"))
+            else:
+                project_kwargs["build_command"] = build_config.get("build_command", "npm run build")
+                project_kwargs["install_command"] = build_config.get("install_command", "npm install")
+                project_kwargs["output_directory"] = build_config.get("output_directory", "dist")
+                project_kwargs["node_version"] = build_config.get("node_version", "18")
+
+        # Create project
+        project = Project(**project_kwargs)
 
         db.add(project)
         db.commit()
@@ -196,10 +218,7 @@ async def import_repository(
         webhook_created = False
         webhook_error = None
         try:
-            from ...config import get_settings
             import secrets
-
-            settings = get_settings()
 
             # Generate webhook secret
             webhook_secret = secrets.token_urlsafe(32)
@@ -276,12 +295,17 @@ async def import_repository(
             db.commit()
             db.refresh(deployment)
 
-            # Queue Celery task
+            # Queue Celery task (dispatch by project type)
             REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
             celery_app = Celery('miaobu-worker', broker=REDIS_URL, backend=REDIS_URL)
 
+            if project.project_type == "python":
+                task_name = 'tasks.build_python.build_and_deploy_python'
+            else:
+                task_name = 'tasks.build.build_and_deploy'
+
             task = celery_app.send_task(
-                'tasks.build.build_and_deploy',
+                task_name,
                 args=[deployment.id],
                 queue='builds'
             )
@@ -302,6 +326,7 @@ async def import_repository(
                 "id": project.id,
                 "name": project.name,
                 "slug": project.slug,
+                "project_type": project.project_type or "static",
                 "github_repo_name": project.github_repo_name,
                 "default_domain": project.default_domain,
                 "root_directory": project.root_directory,
@@ -309,12 +334,16 @@ async def import_repository(
                 "install_command": project.install_command,
                 "output_directory": project.output_directory,
                 "node_version": project.node_version,
+                "python_version": project.python_version,
+                "start_command": project.start_command,
+                "python_framework": project.python_framework,
                 "webhook_id": project.webhook_id,
                 "webhook_configured": webhook_created,
                 "created_at": project.created_at,
             },
             "detected_framework": build_config["framework"],
             "detection_confidence": build_config["confidence"],
+            "project_type": project_type_str,
             "note": build_config.get("note"),
             "webhook_status": {
                 "created": webhook_created,

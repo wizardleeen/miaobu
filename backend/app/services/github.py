@@ -235,68 +235,97 @@ class GitHubService:
         def get_path(filename: str) -> str:
             return f"{root_directory}/{filename}" if root_directory else filename
 
-        # Fetch multiple configuration files for comprehensive detection
-        package_json_path = get_path("package.json")
-        nvmrc_path = get_path(".nvmrc")
-        node_version_path = get_path(".node-version")
-        netlify_toml_path = get_path("netlify.toml")
-        vercel_json_path = get_path("vercel.json")
-
-        # Fetch all files concurrently (if one fails, it returns None)
-        package_json, nvmrc, node_version_file, netlify_toml, vercel_json = await asyncio.gather(
-            GitHubService.get_file_content(access_token, owner, repo, package_json_path, branch),
-            GitHubService.get_file_content(access_token, owner, repo, nvmrc_path, branch),
-            GitHubService.get_file_content(access_token, owner, repo, node_version_path, branch),
-            GitHubService.get_file_content(access_token, owner, repo, netlify_toml_path, branch),
-            GitHubService.get_file_content(access_token, owner, repo, vercel_json_path, branch),
-        )
-
-        if package_json:
-            # Detect build configuration from package.json
-            build_config = BuildDetector.detect_from_package_json(package_json)
-
-            # Detect Node version from multiple sources
-            node_version = BuildDetector.detect_node_version_from_files(
-                package_json=package_json,
-                nvmrc=nvmrc,
-                node_version_file=node_version_file,
-                netlify_toml=netlify_toml,
-                vercel_json=vercel_json
-            )
-            build_config["node_version"] = node_version
-
-            # Add detection source info for debugging
-            detection_sources = []
-            if nvmrc:
-                detection_sources.append(".nvmrc")
-            if node_version_file:
-                detection_sources.append(".node-version")
-            if netlify_toml and "NODE_VERSION" in netlify_toml:
-                detection_sources.append("netlify.toml")
-            if vercel_json:
-                detection_sources.append("vercel.json")
-
-            build_config["node_version_source"] = detection_sources[0] if detection_sources else "default"
-        else:
-            # No package.json found, use defaults
-            not_found_msg = f"No package.json found at {package_json_path}" if root_directory else "No package.json found - this may not be a Node.js project"
-            build_config = BuildDetector._get_default_config(
-                "unknown",
-                not_found_msg
-            )
-
-        # Get repository file tree for additional analysis
+        # Get repository file tree for structure analysis
         files = await GitHubService.get_repository_tree(access_token, owner, repo, branch)
         repo_structure = BuildDetector.analyze_repository_structure(files, root_directory)
 
-        # Override lock file detection if found in structure
-        if repo_structure["lock_file"]:
-            if repo_structure["lock_file"] == "yarn":
-                build_config["install_command"] = "yarn install"
-                build_config["package_manager"] = "yarn"
-            elif repo_structure["lock_file"] == "pnpm":
-                build_config["install_command"] = "pnpm install"
-                build_config["package_manager"] = "pnpm"
+        # Detect project type (static/Node.js vs Python)
+        project_type = BuildDetector.detect_project_type(files, root_directory)
+
+        if project_type == "python":
+            # Python project detection
+            requirements_path = get_path("requirements.txt")
+            pyproject_path = get_path("pyproject.toml")
+            pipfile_path = get_path("Pipfile")
+            python_version_path = get_path(".python-version")
+
+            requirements, pyproject, pipfile, python_version_file = await asyncio.gather(
+                GitHubService.get_file_content(access_token, owner, repo, requirements_path, branch),
+                GitHubService.get_file_content(access_token, owner, repo, pyproject_path, branch),
+                GitHubService.get_file_content(access_token, owner, repo, pipfile_path, branch),
+                GitHubService.get_file_content(access_token, owner, repo, python_version_path, branch),
+            )
+
+            build_config = BuildDetector.detect_from_python_project(
+                requirements_content=requirements,
+                pyproject_content=pyproject,
+                pipfile_content=pipfile,
+            )
+
+            python_version = BuildDetector.detect_python_version(
+                python_version_file=python_version_file,
+                pyproject_content=pyproject,
+            )
+            build_config["python_version"] = python_version
+
+        else:
+            # Node.js / static project detection
+            package_json_path = get_path("package.json")
+            nvmrc_path = get_path(".nvmrc")
+            node_version_path = get_path(".node-version")
+            netlify_toml_path = get_path("netlify.toml")
+            vercel_json_path = get_path("vercel.json")
+
+            package_json, nvmrc, node_version_file, netlify_toml, vercel_json = await asyncio.gather(
+                GitHubService.get_file_content(access_token, owner, repo, package_json_path, branch),
+                GitHubService.get_file_content(access_token, owner, repo, nvmrc_path, branch),
+                GitHubService.get_file_content(access_token, owner, repo, node_version_path, branch),
+                GitHubService.get_file_content(access_token, owner, repo, netlify_toml_path, branch),
+                GitHubService.get_file_content(access_token, owner, repo, vercel_json_path, branch),
+            )
+
+            if package_json:
+                build_config = BuildDetector.detect_from_package_json(package_json)
+
+                node_version = BuildDetector.detect_node_version_from_files(
+                    package_json=package_json,
+                    nvmrc=nvmrc,
+                    node_version_file=node_version_file,
+                    netlify_toml=netlify_toml,
+                    vercel_json=vercel_json
+                )
+                build_config["node_version"] = node_version
+
+                detection_sources = []
+                if nvmrc:
+                    detection_sources.append(".nvmrc")
+                if node_version_file:
+                    detection_sources.append(".node-version")
+                if netlify_toml and "NODE_VERSION" in netlify_toml:
+                    detection_sources.append("netlify.toml")
+                if vercel_json:
+                    detection_sources.append("vercel.json")
+
+                build_config["node_version_source"] = detection_sources[0] if detection_sources else "default"
+            else:
+                not_found_msg = f"No package.json found at {package_json_path}" if root_directory else "No package.json found - this may not be a Node.js project"
+                build_config = BuildDetector._get_default_config(
+                    "unknown",
+                    not_found_msg
+                )
+
+            build_config["project_type"] = "static"
+
+            # Override install/build commands based on lockfile
+            if repo_structure["lock_file"]:
+                if repo_structure["lock_file"] == "yarn":
+                    build_config["install_command"] = "yarn install"
+                    build_config["build_command"] = "yarn run build"
+                    build_config["package_manager"] = "yarn"
+                elif repo_structure["lock_file"] == "pnpm":
+                    build_config["install_command"] = "pnpm install"
+                    build_config["build_command"] = "pnpm run build"
+                    build_config["package_manager"] = "pnpm"
 
         return {
             "repository": {
@@ -314,6 +343,7 @@ class GitHubService:
             "build_config": build_config,
             "repo_structure": repo_structure,
             "root_directory": root_directory,
+            "project_type": project_type,
         }
 
     @staticmethod

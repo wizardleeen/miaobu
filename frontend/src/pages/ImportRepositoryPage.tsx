@@ -55,11 +55,17 @@ export default function ImportRepositoryPage() {
       // Initialize custom config with detected values
       setCustomConfig({
         name: result.repository.name,
+        project_type: result.project_type || 'static',
         root_directory: result.root_directory || rootDirectory || '',
-        build_command: result.build_config.build_command,
-        install_command: result.build_config.install_command,
-        output_directory: result.build_config.output_directory,
-        node_version: result.build_config.node_version,
+        // Static fields
+        build_command: result.build_config.build_command || 'npm run build',
+        install_command: result.build_config.install_command || 'npm install',
+        output_directory: result.build_config.output_directory || 'dist',
+        node_version: result.build_config.node_version || '18',
+        // Python fields
+        python_version: result.build_config.python_version || '3.11',
+        start_command: result.build_config.start_command || '',
+        python_framework: result.build_config.python_framework || '',
       })
     } catch (error) {
       console.error('Failed to analyze repository:', error)
@@ -208,6 +214,22 @@ export default function ImportRepositoryPage() {
                   <h2 className="text-xl font-bold mb-4">自动检测结果</h2>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
+                      <label className="text-sm text-gray-600">项目类型</label>
+                      <p className="font-semibold">
+                        {analysis.project_type === 'python' ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="w-3 h-3 rounded-full bg-blue-500 inline-block"></span>
+                            Python 后端
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                            静态/前端
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div>
                       <label className="text-sm text-gray-600">检测到的框架</label>
                       <p className="font-semibold capitalize">
                         {analysis.build_config.framework}
@@ -224,10 +246,12 @@ export default function ImportRepositoryPage() {
                         )}
                       </p>
                     </div>
-                    <div>
-                      <label className="text-sm text-gray-600">包管理器</label>
-                      <p className="font-semibold">{analysis.build_config.package_manager}</p>
-                    </div>
+                    {analysis.project_type !== 'python' && (
+                      <div>
+                        <label className="text-sm text-gray-600">包管理器</label>
+                        <p className="font-semibold">{analysis.build_config.package_manager}</p>
+                      </div>
+                    )}
                   </div>
                   {analysis.build_config.note && (
                     <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -238,7 +262,9 @@ export default function ImportRepositoryPage() {
 
                 {/* Configuration Form */}
                 <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h2 className="text-xl font-bold mb-4">构建配置</h2>
+                  <h2 className="text-xl font-bold mb-4">
+                    {customConfig.project_type === 'python' ? 'Python 部署配置' : '构建配置'}
+                  </h2>
                   <p className="text-sm text-gray-600 mb-4">
                     检查并自定义自动检测的设置
                   </p>
@@ -257,6 +283,20 @@ export default function ImportRepositoryPage() {
                     </div>
 
                     <div>
+                      <label className="block text-sm font-medium mb-1">项目类型</label>
+                      <select
+                        className="w-full border rounded-lg px-3 py-2"
+                        value={customConfig.project_type}
+                        onChange={(e) =>
+                          setCustomConfig({ ...customConfig, project_type: e.target.value })
+                        }
+                      >
+                        <option value="static">静态/前端 (Node.js)</option>
+                        <option value="python">Python 后端</option>
+                      </select>
+                    </div>
+
+                    <div>
                       <label className="block text-sm font-medium mb-1">
                         根目录（Monorepo 支持）
                       </label>
@@ -270,62 +310,100 @@ export default function ImportRepositoryPage() {
                         }
                       />
                       <p className="text-xs text-gray-500 mt-1">
-                        包含 package.json 的子目录
+                        包含项目文件的子目录
                       </p>
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium mb-1">构建命令</label>
-                      <input
-                        type="text"
-                        className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
-                        value={customConfig.build_command}
-                        onChange={(e) =>
-                          setCustomConfig({ ...customConfig, build_command: e.target.value })
-                        }
-                      />
-                    </div>
+                    {customConfig.project_type === 'python' ? (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">启动命令</label>
+                          <input
+                            type="text"
+                            className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                            placeholder="uvicorn main:app --host 0.0.0.0 --port 9000"
+                            value={customConfig.start_command || ''}
+                            onChange={(e) =>
+                              setCustomConfig({ ...customConfig, start_command: e.target.value })
+                            }
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            应用必须监听端口 9000
+                          </p>
+                        </div>
 
-                    <div>
-                      <label className="block text-sm font-medium mb-1">安装命令</label>
-                      <input
-                        type="text"
-                        className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
-                        value={customConfig.install_command}
-                        onChange={(e) =>
-                          setCustomConfig({ ...customConfig, install_command: e.target.value })
-                        }
-                      />
-                    </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Python 版本</label>
+                          <select
+                            className="w-full border rounded-lg px-3 py-2"
+                            value={customConfig.python_version || '3.11'}
+                            onChange={(e) =>
+                              setCustomConfig({ ...customConfig, python_version: e.target.value })
+                            }
+                          >
+                            <option value="3.9">3.9</option>
+                            <option value="3.10">3.10</option>
+                            <option value="3.11">3.11</option>
+                            <option value="3.12">3.12</option>
+                          </select>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">构建命令</label>
+                          <input
+                            type="text"
+                            className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                            value={customConfig.build_command}
+                            onChange={(e) =>
+                              setCustomConfig({ ...customConfig, build_command: e.target.value })
+                            }
+                          />
+                        </div>
 
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-1">输出目录</label>
-                        <input
-                          type="text"
-                          className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
-                          value={customConfig.output_directory}
-                          onChange={(e) =>
-                            setCustomConfig({ ...customConfig, output_directory: e.target.value })
-                          }
-                        />
-                      </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">安装命令</label>
+                          <input
+                            type="text"
+                            className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                            value={customConfig.install_command}
+                            onChange={(e) =>
+                              setCustomConfig({ ...customConfig, install_command: e.target.value })
+                            }
+                          />
+                        </div>
 
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Node 版本</label>
-                        <select
-                          className="w-full border rounded-lg px-3 py-2"
-                          value={customConfig.node_version}
-                          onChange={(e) =>
-                            setCustomConfig({ ...customConfig, node_version: e.target.value })
-                          }
-                        >
-                          <option value="16">16</option>
-                          <option value="18">18</option>
-                          <option value="20">20</option>
-                        </select>
-                      </div>
-                    </div>
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium mb-1">输出目录</label>
+                            <input
+                              type="text"
+                              className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                              value={customConfig.output_directory}
+                              onChange={(e) =>
+                                setCustomConfig({ ...customConfig, output_directory: e.target.value })
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Node 版本</label>
+                            <select
+                              className="w-full border rounded-lg px-3 py-2"
+                              value={customConfig.node_version}
+                              onChange={(e) =>
+                                setCustomConfig({ ...customConfig, node_version: e.target.value })
+                              }
+                            >
+                              <option value="16">16</option>
+                              <option value="18">18</option>
+                              <option value="20">20</option>
+                            </select>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 

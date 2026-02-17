@@ -143,7 +143,6 @@ def build_and_deploy(self, deployment_id: int):
                 'output_dir': str(output_dir),
                 'file_count': len(output_files),
                 'oss_url': upload_result.get('oss_url'),
-                'cdn_url': upload_result.get('cdn_url'),
                 'deployment_url': upload_result.get('deployment_url')
             }
 

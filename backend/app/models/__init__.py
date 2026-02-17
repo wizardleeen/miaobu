@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -7,12 +7,19 @@ import enum
 from ..database import Base
 
 
+class ProjectType(str, enum.Enum):
+    """Project type enumeration."""
+    STATIC = "static"
+    PYTHON = "python"
+
+
 class DeploymentStatus(str, enum.Enum):
     """Deployment status enumeration."""
     QUEUED = "queued"
     CLONING = "cloning"
     BUILDING = "building"
     UPLOADING = "uploading"
+    DEPLOYING = "deploying"
     DEPLOYED = "deployed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -66,12 +73,24 @@ class Project(Base):
     name = Column(String(255), nullable=False)
     slug = Column(String(255), unique=True, nullable=False, index=True)
 
-    # Build configuration
+    # Project type
+    project_type = Column(String(10), default="static", nullable=False)
+
+    # Build configuration (static/Node.js projects)
     root_directory = Column(String(255), default="", nullable=False)  # Subdirectory for monorepo support
     build_command = Column(String(512), default="npm run build")
     install_command = Column(String(512), default="npm install")
     output_directory = Column(String(255), default="dist")
     node_version = Column(String(20), default="18")
+
+    # Python project configuration
+    python_version = Column(String(20))  # e.g., "3.11"
+    start_command = Column(String(512))  # e.g., "uvicorn main:app --host 0.0.0.0 --port 9000"
+    python_framework = Column(String(50))  # e.g., "fastapi", "flask", "django"
+
+    # Function Compute info
+    fc_function_name = Column(String(255))
+    fc_endpoint_url = Column(String(512))
 
     # Deployment info
     oss_path = Column(String(512))  # user_id/project_id/
@@ -88,6 +107,7 @@ class Project(Base):
     user = relationship("User", back_populates="projects")
     deployments = relationship("Deployment", back_populates="project", cascade="all, delete-orphan", order_by="Deployment.created_at.desc()")
     custom_domains = relationship("CustomDomain", back_populates="project", cascade="all, delete-orphan")
+    environment_variables = relationship("EnvironmentVariable", back_populates="project", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Project(id={self.id}, name={self.name}, slug={self.slug})>"
@@ -115,6 +135,10 @@ class Deployment(Base):
     oss_url = Column(String(512))
     cdn_url = Column(String(512))
     deployment_url = Column(String(512))  # Primary access URL
+
+    # Function Compute fields (Python deployments)
+    fc_function_version = Column(String(255))
+    fc_image_uri = Column(String(512))
 
     # Metadata
     build_time_seconds = Column(Integer)
@@ -199,3 +223,27 @@ class BuildCache(Base):
 
     def __repr__(self):
         return f"<BuildCache(id={self.id}, project_id={self.project_id}, cache_key={self.cache_key})>"
+
+
+class EnvironmentVariable(Base):
+    """Environment variable model for project configuration."""
+    __tablename__ = "environment_variables"
+    __table_args__ = (
+        UniqueConstraint('project_id', 'key', name='uq_env_var_project_key'),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    key = Column(String(255), nullable=False)
+    value = Column(Text, nullable=False)  # Encrypted at rest
+    is_secret = Column(Boolean, default=False, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    project = relationship("Project", back_populates="environment_variables")
+
+    def __repr__(self):
+        return f"<EnvironmentVariable(id={self.id}, project_id={self.project_id}, key={self.key})>"

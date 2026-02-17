@@ -180,6 +180,15 @@ async def delete_project(
     # TODO: Delete webhook from GitHub
     # TODO: Clean up OSS files
 
+    # Clean up FC function for Python projects
+    if project.project_type == "python" and project.fc_function_name:
+        try:
+            from ...services.fc import FCService
+            fc_service = FCService()
+            fc_service.delete_function(project.fc_function_name)
+        except Exception as e:
+            print(f"Warning: Failed to delete FC function {project.fc_function_name}: {e}")
+
     db.delete(project)
     db.commit()
 

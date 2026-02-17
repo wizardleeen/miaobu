@@ -247,6 +247,8 @@ async def verify_custom_domain(
                 icp_required = True
 
     # Step 5: Update database (DNS ownership confirmed, ESA resources created)
+    is_metavm_subdomain = domain.domain.endswith('.metavm.tech') or domain.domain == 'metavm.tech'
+
     domain.is_verified = True
     domain.verified_at = datetime.utcnow()
     domain.esa_saas_id = provision_result.get('custom_hostname_id')  # Store custom hostname ID
@@ -254,7 +256,12 @@ async def verify_custom_domain(
     domain.active_deployment_id = latest_deployment.id
     domain.edge_kv_synced = True
     domain.edge_kv_synced_at = datetime.utcnow()
-    domain.ssl_status = SSLStatus.VERIFYING  # Set to VERIFYING initially, will be updated to ISSUING/ACTIVE
+
+    # For *.metavm.tech subdomains, SSL is already active via wildcard cert
+    if is_metavm_subdomain:
+        domain.ssl_status = SSLStatus.ACTIVE
+    else:
+        domain.ssl_status = SSLStatus.VERIFYING
 
     db.commit()
 
@@ -266,8 +273,12 @@ async def verify_custom_domain(
         "cname_target": domain.cname_target,
         "edge_kv_synced": True,
         "ssl_status": domain.ssl_status.value,
-        "ssl_note": "SSL certificate is being provisioned by Aliyun ESA. This may take 5-30 minutes. Use the 'Refresh SSL Status' button to check progress."
     }
+
+    if is_metavm_subdomain:
+        response["ssl_note"] = "SSL is active via wildcard certificate."
+    else:
+        response["ssl_note"] = "SSL certificate is being provisioned by Aliyun ESA. This may take 5-30 minutes. Use the 'Refresh SSL Status' button to check progress."
 
     if icp_required:
         response["message"] = "Domain configured but ICP filing is required for domains serving users in mainland China."
@@ -279,10 +290,14 @@ async def verify_custom_domain(
             "note": "Your domain will remain offline until ICP filing is completed. SSL certificate will be issued automatically after ICP approval."
         }
     else:
-        response["message"] = "Domain verified and provisioned successfully. SSL certificate will be issued automatically."
+        response["message"] = "Domain verified and provisioned successfully." + (
+            " SSL is active via wildcard certificate." if is_metavm_subdomain
+            else " SSL certificate will be issued automatically."
+        )
         response["instructions"] = {
             "next_step": f"Add CNAME record: {domain.domain} → {domain.cname_target}",
-            "note": "SSL certificate will be automatically provisioned by ESA (may take a few minutes)"
+            "note": "SSL is already active." if is_metavm_subdomain
+            else "SSL certificate will be automatically provisioned by ESA (may take a few minutes)"
         }
 
     return response
@@ -313,6 +328,20 @@ async def refresh_ssl_status(
         return {
             "success": False,
             "message": "Domain is not verified yet. Verify domain first."
+        }
+
+    # For *.metavm.tech subdomains, SSL is always active via wildcard cert
+    is_metavm_subdomain = domain.domain.endswith('.metavm.tech') or domain.domain == 'metavm.tech'
+    if is_metavm_subdomain:
+        domain.ssl_status = SSLStatus.ACTIVE
+        db.commit()
+        return {
+            "success": True,
+            "domain": domain.domain,
+            "ssl_status": SSLStatus.ACTIVE.value,
+            "esa_status": domain.esa_status,
+            "is_https_ready": True,
+            "message": "SSL is active via wildcard certificate for *.metavm.tech"
         }
 
     if not domain.esa_saas_id:

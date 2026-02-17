@@ -19,3 +19,4 @@ aliyun-python-sdk-alidns==3.0.7
 cryptography==42.0.0
 acme==2.7.4
 josepy==1.14.0
+alibabacloud-fc20230330>=4.6.0

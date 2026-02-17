@@ -30,7 +30,7 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
     queryKey: ['deployment-logs', deployment.id],
     queryFn: () => api.getDeploymentLogs(deployment.id),
     enabled: showLogs,
-    refetchInterval: deployment.status === 'queued' || deployment.status === 'cloning' || deployment.status === 'building' || deployment.status === 'uploading' ? 2000 : false,
+    refetchInterval: ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(deployment.status) ? 2000 : false,
   })
 
   const getStatusColor = (status: string) => {
@@ -44,13 +44,28 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
       case 'cloning':
       case 'building':
       case 'uploading':
+      case 'deploying':
         return 'bg-yellow-100 text-yellow-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
   }
 
-  const canCancel = ['queued', 'cloning', 'building', 'uploading'].includes(deployment.status)
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      queued: '排队中',
+      cloning: '克隆中',
+      building: '构建中',
+      uploading: '上传中',
+      deploying: '部署中',
+      deployed: '已部署',
+      failed: '失败',
+      cancelled: '已取消',
+    }
+    return labels[status] || status
+  }
+
+  const canCancel = ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(deployment.status)
   const isDeployed = deployment.status === 'deployed' && deployment.deployment_url
 
   return (
@@ -59,7 +74,7 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <span className={`px-3 py-1 rounded-full text-sm font-semibold ${getStatusColor(deployment.status)}`}>
-              {deployment.status}
+              {getStatusLabel(deployment.status)}
             </span>
             {deployment.build_time_seconds && (
               <span className="text-sm text-gray-500">

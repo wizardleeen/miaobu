@@ -72,7 +72,7 @@ export default function ProjectDetailPage() {
 
   // 检查是否有正在进行的部署
   const hasActiveDeployment = project.deployments?.some((d: any) =>
-    ['queued', 'cloning', 'building', 'uploading'].includes(d.status)
+    ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(d.status)
   )
 
   return (
@@ -101,24 +101,56 @@ export default function ProjectDetailPage() {
 
       <div className="grid md:grid-cols-2 gap-6 mb-8">
         <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold mb-4">构建配置</h2>
+          <h2 className="text-xl font-bold mb-4">
+            {project.project_type === 'python' ? '部署配置' : '构建配置'}
+          </h2>
           <div className="space-y-3">
-            <div>
-              <label className="text-sm text-gray-600">构建命令</label>
-              <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.build_command}</p>
-            </div>
-            <div>
-              <label className="text-sm text-gray-600">安装命令</label>
-              <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.install_command}</p>
-            </div>
-            <div>
-              <label className="text-sm text-gray-600">输出目录</label>
-              <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.output_directory}</p>
-            </div>
-            <div>
-              <label className="text-sm text-gray-600">Node 版本</label>
-              <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.node_version}</p>
-            </div>
+            {project.project_type === 'python' ? (
+              <>
+                <div>
+                  <label className="text-sm text-gray-600">项目类型</label>
+                  <p className="text-sm">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                      Python 后端
+                      {project.python_framework && ` (${project.python_framework})`}
+                    </span>
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">启动命令</label>
+                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.start_command || '—'}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Python 版本</label>
+                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.python_version || '3.11'}</p>
+                </div>
+                {project.fc_endpoint_url && (
+                  <div>
+                    <label className="text-sm text-gray-600">服务端点</label>
+                    <p className="font-mono text-xs bg-gray-100 p-2 rounded truncate">{project.fc_endpoint_url}</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-sm text-gray-600">构建命令</label>
+                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.build_command}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">安装命令</label>
+                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.install_command}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">输出目录</label>
+                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.output_directory}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Node 版本</label>
+                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.node_version}</p>
+                </div>
+              </>
+            )}
           </div>
         </div>
 

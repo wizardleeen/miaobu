@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     aliyun_esa_edge_kv_namespace_id: str = "961854465965670400"
     aliyun_esa_edge_kv_namespace: str = "miaobu"
 
+    # Function Compute Configuration
+    aliyun_account_id: str = ""
+    aliyun_fc_service_name: str = "miaobu"
+    aliyun_acr_registry: str = ""  # e.g., "registry.cn-hangzhou.aliyuncs.com"
+    aliyun_acr_namespace: str = "miaobu"
+
+    # Environment variable encryption
+    env_encryption_key: str = ""  # Fernet key for encrypting env var values
+
     # HTTP Proxy
     http_proxy: str = ""
 

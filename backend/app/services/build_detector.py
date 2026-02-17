@@ -6,13 +6,32 @@ import re
 class BuildDetector:
     """Service for detecting build configuration from repository files."""
 
+    # Python framework detection patterns
+    PYTHON_FRAMEWORK_PATTERNS = {
+        "fastapi": {
+            "indicators": ["fastapi", "uvicorn"],
+            "start_command": "uvicorn main:app --host 0.0.0.0 --port 9000",
+            "framework": "fastapi",
+        },
+        "flask": {
+            "indicators": ["flask"],
+            "start_command": "gunicorn --bind 0.0.0.0:9000 app:app",
+            "framework": "flask",
+        },
+        "django": {
+            "indicators": ["django"],
+            "start_command": "gunicorn --bind 0.0.0.0:9000 config.wsgi:application",
+            "framework": "django",
+        },
+    }
+
     # Framework detection patterns
     FRAMEWORK_PATTERNS = {
         "slidev": {
             "indicators": ["@slidev/cli"],
-            "build_command": "slidev build",
+            "build_command": "npm run build",
             "output_directory": "dist",
-            "dev_command": "slidev"
+            "dev_command": "npm run dev"
         },
         "astro": {
             "indicators": ["astro"],
@@ -375,6 +394,166 @@ class BuildDetector:
         return "dist"
 
     @staticmethod
+    def detect_project_type(files: list, root_directory: str = "") -> str:
+        """
+        Detect whether a repository is a static/Node.js project or a Python project.
+
+        Args:
+            files: List of file paths in the repository
+            root_directory: Subdirectory path for monorepo support
+
+        Returns:
+            "python" or "static"
+        """
+        root_dir = root_directory.strip("/") if root_directory else ""
+        prefix = f"{root_dir}/" if root_dir else ""
+
+        python_indicators = [
+            "requirements.txt", "pyproject.toml", "Pipfile", "setup.py", "setup.cfg"
+        ]
+        node_indicators = ["package.json"]
+
+        has_python = False
+        has_node = False
+
+        for file_path in files:
+            if root_dir and not file_path.startswith(prefix):
+                continue
+
+            relative_path = file_path[len(prefix):] if prefix else file_path
+
+            # Only check root-level files
+            if "/" in relative_path:
+                continue
+
+            if relative_path in python_indicators:
+                has_python = True
+            if relative_path in node_indicators:
+                has_node = True
+
+        # If both exist, prefer Node (might be a fullstack project with Python tooling)
+        # If only Python indicators exist, it's a Python project
+        if has_python and not has_node:
+            return "python"
+
+        return "static"
+
+    @staticmethod
+    def detect_from_python_project(
+        requirements_content: Optional[str] = None,
+        pyproject_content: Optional[str] = None,
+        pipfile_content: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Detect Python framework and build configuration from dependency files.
+
+        Args:
+            requirements_content: Content of requirements.txt
+            pyproject_content: Content of pyproject.toml
+            pipfile_content: Content of Pipfile
+
+        Returns:
+            Dictionary with detected Python build configuration
+        """
+        # Collect all dependency names
+        deps = set()
+
+        if requirements_content:
+            for line in requirements_content.splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and not line.startswith("-"):
+                    # Extract package name (before any version specifier)
+                    pkg = re.split(r'[><=!~\[]', line)[0].strip().lower()
+                    if pkg:
+                        deps.add(pkg)
+
+        if pyproject_content:
+            # Simple parsing for [project] dependencies
+            in_deps = False
+            for line in pyproject_content.splitlines():
+                if re.match(r'\s*dependencies\s*=\s*\[', line):
+                    in_deps = True
+                    continue
+                if in_deps:
+                    if ']' in line:
+                        in_deps = False
+                    pkg_match = re.search(r'"([^"]+)"', line)
+                    if pkg_match:
+                        pkg = re.split(r'[><=!~\[]', pkg_match.group(1))[0].strip().lower()
+                        if pkg:
+                            deps.add(pkg)
+
+        if pipfile_content:
+            in_packages = False
+            for line in pipfile_content.splitlines():
+                if line.strip() == '[packages]':
+                    in_packages = True
+                    continue
+                if line.strip().startswith('[') and in_packages:
+                    in_packages = False
+                    continue
+                if in_packages and '=' in line:
+                    pkg = line.split('=')[0].strip().lower().strip('"')
+                    if pkg:
+                        deps.add(pkg)
+
+        # Detect framework
+        detected_framework = None
+        start_command = None
+
+        for framework_name, config in BuildDetector.PYTHON_FRAMEWORK_PATTERNS.items():
+            for indicator in config["indicators"]:
+                if indicator in deps:
+                    detected_framework = config["framework"]
+                    start_command = config["start_command"]
+                    break
+            if detected_framework:
+                break
+
+        # Default start command if no framework detected
+        if not start_command:
+            start_command = "python main.py"
+
+        return {
+            "project_type": "python",
+            "framework": detected_framework or "python",
+            "python_framework": detected_framework,
+            "start_command": start_command,
+            "dependencies": list(deps),
+            "confidence": "high" if detected_framework else "medium",
+        }
+
+    @staticmethod
+    def detect_python_version(
+        python_version_file: Optional[str] = None,
+        pyproject_content: Optional[str] = None,
+    ) -> str:
+        """
+        Detect Python version from project files.
+
+        Priority:
+        1. .python-version file
+        2. pyproject.toml requires-python
+        3. Default to "3.11"
+
+        Returns:
+            Python version string (e.g., "3.11", "3.12")
+        """
+        if python_version_file:
+            version = python_version_file.strip()
+            # Extract major.minor (e.g., "3.11.5" -> "3.11")
+            match = re.match(r'(\d+\.\d+)', version)
+            if match:
+                return match.group(1)
+
+        if pyproject_content:
+            match = re.search(r'requires-python\s*=\s*["\']>=?(\d+\.\d+)', pyproject_content)
+            if match:
+                return match.group(1)
+
+        return "3.11"
+
+    @staticmethod
     def _get_default_config(framework: str = "unknown", note: Optional[str] = None) -> Dict[str, Any]:
         """Get default configuration."""
         return {
@@ -408,6 +587,10 @@ class BuildDetector:
             "has_typescript": False,
             "has_docker": False,
             "has_tests": False,
+            "has_requirements_txt": False,
+            "has_pyproject_toml": False,
+            "has_pipfile": False,
+            "has_setup_py": False,
             "lock_file": None,
             "config_files": []
         }
@@ -444,6 +627,14 @@ class BuildDetector:
                 analysis["has_typescript"] = True
             elif relative_path in ["Dockerfile", "docker-compose.yml"]:
                 analysis["has_docker"] = True
+            elif relative_path == "requirements.txt":
+                analysis["has_requirements_txt"] = True
+            elif relative_path == "pyproject.toml":
+                analysis["has_pyproject_toml"] = True
+            elif relative_path == "Pipfile":
+                analysis["has_pipfile"] = True
+            elif relative_path in ["setup.py", "setup.cfg"]:
+                analysis["has_setup_py"] = True
             elif relative_path in ["vite.config.js", "vite.config.ts", "next.config.js",
                                "vue.config.js", "angular.json", "gatsby-config.js"]:
                 analysis["config_files"].append(relative_path)

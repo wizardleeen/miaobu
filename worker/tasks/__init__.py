@@ -1,4 +1,4 @@
 # Task modules
-from . import build, deploy, cdn, ssl
+from . import build, build_python, deploy, ssl
 
-__all__ = ['build', 'deploy', 'cdn', 'ssl']
+__all__ = ['build', 'build_python', 'deploy', 'ssl']

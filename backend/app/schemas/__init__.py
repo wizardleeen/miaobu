@@ -7,11 +7,17 @@ from enum import Enum
 
 
 # Enums matching models
+class ProjectType(str, Enum):
+    STATIC = "static"
+    PYTHON = "python"
+
+
 class DeploymentStatus(str, Enum):
     QUEUED = "queued"
     CLONING = "cloning"
     BUILDING = "building"
     UPLOADING = "uploading"
+    DEPLOYING = "deploying"
     DEPLOYED = "deployed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -51,11 +57,15 @@ class UserResponse(UserBase):
 # Project Schemas
 class ProjectBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
+    project_type: str = Field(default="static")
     root_directory: str = Field(default="", max_length=255, description="Subdirectory for monorepo support (e.g., 'frontend')")
     build_command: str = Field(default="npm run build", max_length=512)
     install_command: str = Field(default="npm install", max_length=512)
     output_directory: str = Field(default="dist", max_length=255)
     node_version: str = Field(default="18", max_length=20)
+    python_version: Optional[str] = Field(None, max_length=20)
+    start_command: Optional[str] = Field(None, max_length=512)
+    python_framework: Optional[str] = Field(None, max_length=50)
 
 
 class ProjectCreate(ProjectBase):
@@ -67,11 +77,15 @@ class ProjectCreate(ProjectBase):
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
+    project_type: Optional[str] = None
     root_directory: Optional[str] = Field(None, max_length=255, description="Subdirectory for monorepo support (e.g., 'frontend')")
     build_command: Optional[str] = Field(None, max_length=512)
     install_command: Optional[str] = Field(None, max_length=512)
     output_directory: Optional[str] = Field(None, max_length=255)
     node_version: Optional[str] = Field(None, max_length=20)
+    python_version: Optional[str] = Field(None, max_length=20)
+    start_command: Optional[str] = Field(None, max_length=512)
+    python_framework: Optional[str] = Field(None, max_length=50)
 
 
 class ProjectResponse(ProjectBase):
@@ -85,6 +99,8 @@ class ProjectResponse(ProjectBase):
     oss_path: Optional[str] = None
     default_domain: Optional[str] = None
     webhook_id: Optional[int] = None
+    fc_function_name: Optional[str] = None
+    fc_endpoint_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -117,6 +133,8 @@ class DeploymentResponse(DeploymentBase):
     oss_url: Optional[str] = None
     cdn_url: Optional[str] = None
     deployment_url: Optional[str] = None
+    fc_function_version: Optional[str] = None
+    fc_image_uri: Optional[str] = None
     build_time_seconds: Optional[int] = None
     celery_task_id: Optional[str] = None
     created_at: datetime
@@ -158,6 +176,36 @@ class CustomDomainResponse(CustomDomainBase):
     created_at: datetime
     updated_at: datetime
     verified_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Environment Variable Schemas
+class EnvironmentVariableBase(BaseModel):
+    key: str = Field(..., min_length=1, max_length=255)
+    value: str = Field(...)
+    is_secret: bool = Field(default=False)
+
+
+class EnvironmentVariableCreate(EnvironmentVariableBase):
+    pass
+
+
+class EnvironmentVariableUpdate(BaseModel):
+    key: Optional[str] = Field(None, min_length=1, max_length=255)
+    value: Optional[str] = None
+    is_secret: Optional[bool] = None
+
+
+class EnvironmentVariableResponse(BaseModel):
+    id: int
+    project_id: int
+    key: str
+    value: str  # Masked for secrets
+    is_secret: bool
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

@@ -214,6 +214,26 @@ class ApiService {
     return response.data
   }
 
+  // Environment Variable endpoints
+  async listEnvVars(projectId: number) {
+    const response = await this.client.get(`/projects/${projectId}/env`)
+    return response.data
+  }
+
+  async createEnvVar(projectId: number, data: { key: string; value: string; is_secret: boolean }) {
+    const response = await this.client.post(`/projects/${projectId}/env`, data)
+    return response.data
+  }
+
+  async updateEnvVar(projectId: number, varId: number, data: { key?: string; value?: string; is_secret?: boolean }) {
+    const response = await this.client.patch(`/projects/${projectId}/env/${varId}`, data)
+    return response.data
+  }
+
+  async deleteEnvVar(projectId: number, varId: number) {
+    await this.client.delete(`/projects/${projectId}/env/${varId}`)
+  }
+
   // Legacy SSL Certificate endpoints (deprecated - ESA handles SSL automatically)
   // Kept for backward compatibility, but these endpoints no longer exist
   async issueSSL(_domainId: number, _useStaging: boolean = false) {

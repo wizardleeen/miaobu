@@ -87,10 +87,15 @@ async def trigger_deployment(
     db.commit()
     db.refresh(deployment)
 
-    # Queue Celery task
+    # Queue Celery task based on project type
     try:
+        if project.project_type == "python":
+            task_name = 'tasks.build_python.build_and_deploy_python'
+        else:
+            task_name = 'tasks.build.build_and_deploy'
+
         task = celery_app.send_task(
-            'tasks.build.build_and_deploy',
+            task_name,
             args=[deployment.id],
             queue='builds'
         )

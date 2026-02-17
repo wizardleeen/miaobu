@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import Layout from '../components/Layout'
 import DomainsManagement from '../components/DomainsManagement'
+import EnvironmentVariables from '../components/EnvironmentVariables'
 
 export default function ProjectSettingsPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -17,6 +18,9 @@ export default function ProjectSettingsPage() {
     install_command: '',
     output_directory: '',
     node_version: '18',
+    python_version: '',
+    start_command: '',
+    python_framework: '',
   })
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -32,10 +36,13 @@ export default function ProjectSettingsPage() {
       setFormData({
         name: project.name,
         root_directory: project.root_directory || '',
-        build_command: project.build_command,
-        install_command: project.install_command,
-        output_directory: project.output_directory,
-        node_version: project.node_version,
+        build_command: project.build_command || '',
+        install_command: project.install_command || '',
+        output_directory: project.output_directory || '',
+        node_version: project.node_version || '18',
+        python_version: project.python_version || '',
+        start_command: project.start_command || '',
+        python_framework: project.python_framework || '',
       })
     }
   }, [project])
@@ -156,7 +163,9 @@ export default function ProjectSettingsPage() {
 
           {/* Build Settings */}
           <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-bold mb-4">构建配置</h2>
+            <h2 className="text-xl font-bold mb-4">
+              {project.project_type === 'python' ? '部署配置' : '构建配置'}
+            </h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">
@@ -170,62 +179,96 @@ export default function ProjectSettingsPage() {
                   placeholder="例如：frontend（单项目仓库留空）"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Monorepo 项目中包含 package.json 的子目录
+                  包含项目文件的子目录
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">构建命令</label>
-                <input
-                  type="text"
-                  required
-                  className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
-                  value={formData.build_command}
-                  onChange={(e) => setFormData({ ...formData, build_command: e.target.value })}
-                  placeholder="npm run build"
-                />
-              </div>
+              {project.project_type === 'python' ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">启动命令</label>
+                    <input
+                      type="text"
+                      className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                      value={formData.start_command}
+                      onChange={(e) => setFormData({ ...formData, start_command: e.target.value })}
+                      placeholder="uvicorn main:app --host 0.0.0.0 --port 9000"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      应用必须监听端口 9000
+                    </p>
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">安装命令</label>
-                <input
-                  type="text"
-                  required
-                  className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
-                  value={formData.install_command}
-                  onChange={(e) => setFormData({ ...formData, install_command: e.target.value })}
-                  placeholder="npm install"
-                />
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Python 版本</label>
+                    <select
+                      className="w-full border rounded-lg px-3 py-2"
+                      value={formData.python_version || '3.11'}
+                      onChange={(e) => setFormData({ ...formData, python_version: e.target.value })}
+                    >
+                      <option value="3.9">3.9</option>
+                      <option value="3.10">3.10</option>
+                      <option value="3.11">3.11</option>
+                      <option value="3.12">3.12</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">构建命令</label>
+                    <input
+                      type="text"
+                      required
+                      className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                      value={formData.build_command}
+                      onChange={(e) => setFormData({ ...formData, build_command: e.target.value })}
+                      placeholder="npm run build"
+                    />
+                  </div>
 
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">输出目录</label>
-                  <input
-                    type="text"
-                    required
-                    className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
-                    value={formData.output_directory}
-                    onChange={(e) =>
-                      setFormData({ ...formData, output_directory: e.target.value })
-                    }
-                    placeholder="dist"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">安装命令</label>
+                    <input
+                      type="text"
+                      required
+                      className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                      value={formData.install_command}
+                      onChange={(e) => setFormData({ ...formData, install_command: e.target.value })}
+                      placeholder="npm install"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Node 版本</label>
-                  <select
-                    className="w-full border rounded-lg px-3 py-2"
-                    value={formData.node_version}
-                    onChange={(e) => setFormData({ ...formData, node_version: e.target.value })}
-                  >
-                    <option value="16">16</option>
-                    <option value="18">18</option>
-                    <option value="20">20</option>
-                  </select>
-                </div>
-              </div>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">输出目录</label>
+                      <input
+                        type="text"
+                        required
+                        className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                        value={formData.output_directory}
+                        onChange={(e) =>
+                          setFormData({ ...formData, output_directory: e.target.value })
+                        }
+                        placeholder="dist"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Node 版本</label>
+                      <select
+                        className="w-full border rounded-lg px-3 py-2"
+                        value={formData.node_version}
+                        onChange={(e) => setFormData({ ...formData, node_version: e.target.value })}
+                      >
+                        <option value="16">16</option>
+                        <option value="18">18</option>
+                        <option value="20">20</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -263,6 +306,11 @@ export default function ProjectSettingsPage() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Environment Variables (shown for all project types, most useful for Python) */}
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <EnvironmentVariables projectId={Number(projectId)} />
           </div>
 
           {/* Custom Domains */}

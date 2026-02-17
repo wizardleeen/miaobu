@@ -46,6 +46,7 @@ app.conf.task_queues = (
 # Task routing
 app.conf.task_routes = {
     'tasks.build.*': {'queue': 'builds'},
+    'tasks.build_python.*': {'queue': 'builds'},
     'tasks.deploy.*': {'queue': 'deployments'},
 }
 

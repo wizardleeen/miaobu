@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -34,7 +35,7 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
 
         project = deployment.project
 
-        # Get settings for CDN configuration
+        # Get settings
         from app.config import get_settings
         settings = get_settings()
 
@@ -75,30 +76,47 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
         deployment.oss_url = upload_result['index_url']
         deployment.deployment_url = upload_result['index_url']
 
-        # Generate CDN URL using wildcard subdomain pattern
-        if settings.cdn_enabled and settings.cdn_base_domain:
-            # Generate subdomain from project slug
-            # Example: app → app.metavm.tech
-            subdomain = f"{project.slug}.{settings.cdn_base_domain}"
-
-            # Construct CDN URL (simple, clean)
-            # Format: https://{slug}.metavm.tech/
-            cdn_url = f"https://{subdomain}/"
-
-            deployment.cdn_url = cdn_url
-            deployment.deployment_url = cdn_url  # Prefer CDN URL
-            log_callback(f"✓ Deployment URL: {cdn_url}")
-            log_callback(f"✓ Access your site at: https://{subdomain}")
+        # Generate deployment URL using subdomain
+        subdomain = f"{project.slug}.{settings.cdn_base_domain}"
+        deployment_url = f"https://{subdomain}/"
+        deployment.cdn_url = deployment_url
+        deployment.deployment_url = deployment_url
+        log_callback(f"✓ Deployment URL: {deployment_url}")
+        log_callback(f"✓ Access your site at: https://{subdomain}")
 
         # Mark as deployed
         deployment.status = DeploymentStatus.DEPLOYED
         deployment.deployed_at = datetime.utcnow()
         db.commit()
 
+        # Write subdomain KV entry for ESA Edge Routine routing
+        try:
+            from app.services.esa import ESAService
+
+            esa_service = ESAService()
+            subdomain_key = f"{project.slug}.{settings.cdn_base_domain}"
+            kv_value = json.dumps({
+                "type": "static",
+                "oss_path": oss_prefix.rstrip('/'),
+                "project_slug": project.slug,
+                "deployment_id": deployment.id,
+                "commit_sha": deployment.commit_sha,
+                "updated_at": datetime.utcnow().isoformat(),
+            })
+
+            log_callback("")
+            log_callback("Updating ESA Edge KV for subdomain routing...")
+            kv_result = esa_service.put_edge_kv(subdomain_key, kv_value)
+            if kv_result['success']:
+                log_callback(f"✓ Edge KV updated for {subdomain_key}")
+            else:
+                log_callback(f"⚠️  Edge KV update failed for {subdomain_key}: {kv_result.get('error')}")
+        except Exception as e:
+            log_callback(f"⚠️  Subdomain KV update failed: {str(e)}")
+
         # Auto-update custom domains with auto_update_enabled (ESA)
         try:
             from app.models import CustomDomain
-            from app.services.esa import ESAService
 
             log_callback("")
             log_callback("Checking for custom domains with auto-update...")
@@ -145,44 +163,29 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
             log_callback(f"⚠️  Auto-update check failed: {str(e)}")
             # Don't fail the deployment if auto-update fails
 
-        # Update subdomain mapping for EdgeScript (optional - EdgeScript can work without it)
-        if settings.cdn_enabled and settings.cdn_base_domain:
-            try:
-                from app.services.subdomain_mapping import SubdomainMappingService
-
-                log_callback("Updating subdomain mapping...")
-                mapping_service = SubdomainMappingService()
-                success = mapping_service.update_mapping(db)
-
-                if success:
-                    log_callback(f"✓ Subdomain mapping updated")
-                else:
-                    log_callback(f"⚠️  Subdomain mapping update failed (EdgeScript may still work)")
-            except Exception as e:
-                log_callback(f"⚠️  Subdomain mapping: {e}")
-
         log_callback("")
         log_callback("=" * 60)
         log_callback("DEPLOYMENT COMPLETED SUCCESSFULLY")
         log_callback("=" * 60)
         log_callback(f"Deployment URL: {deployment.deployment_url}")
 
-        # Purge CDN cache if CDN is enabled
-        if settings.cdn_enabled and settings.cdn_base_domain:
+        # Purge ESA cache for the subdomain
+        try:
             log_callback("")
-            from .cdn import purge_cdn_cache
+            log_callback("Purging ESA cache...")
+            if 'esa_service' not in locals():
+                from app.services.esa import ESAService
+                esa_service = ESAService()
 
-            # Trigger CDN cache purge asynchronously
-            log_callback("Triggering CDN cache purge...")
-            purge_result = purge_cdn_cache(deployment_id, wait_for_completion=False)
+            hostname = f"{project.slug}.{settings.cdn_base_domain}"
+            purge_result = esa_service.purge_host_cache([hostname])
 
             if purge_result.get('success'):
-                if purge_result.get('skipped'):
-                    log_callback(f"⚠️  CDN cache purge skipped: {purge_result.get('warning', 'CDN not configured')}")
-                else:
-                    log_callback(f"✓ CDN cache purge initiated (Task ID: {purge_result.get('task_id')})")
+                log_callback(f"✓ ESA cache purged for {hostname}")
             else:
-                log_callback(f"⚠️  CDN cache purge failed: {purge_result.get('error', 'Unknown error')}")
+                log_callback(f"⚠️  ESA cache purge failed: {purge_result.get('error', 'Unknown error')}")
+        except Exception as e:
+            log_callback(f"⚠️  ESA cache purge failed: {str(e)}")
 
         log_callback("")
 
