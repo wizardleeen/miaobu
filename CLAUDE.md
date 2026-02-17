@@ -24,7 +24,7 @@ custom domains →  ESA  →  Edge Routine  →  KV lookup  →  OSS (static) or
 - CDN product is NOT used. All routing goes through ESA.
 
 ### Key Aliyun Services
-- **OSS**: Object storage for static build artifacts. Path: `projects/{slug}/`
+- **OSS**: Object storage for static build artifacts. Path: `projects/{slug}/{deployment_id}/`
 - **ESA**: Edge CDN with Edge Routines, Edge KV, Custom Hostnames
 - **FC (Function Compute)**: Serverless hosting for Python apps via custom Docker images
 - **ACR**: Container registry for Python app Docker images
@@ -43,7 +43,7 @@ Value (JSON):
 ```json
 {
   "type": "static" | "python",
-  "oss_path": "projects/{slug}",       // static only
+  "oss_path": "projects/{slug}/{deployment_id}",  // static only
   "fc_endpoint": "https://...",         // python only
   "project_slug": "...",
   "deployment_id": 123,
@@ -67,7 +67,7 @@ Value (JSON):
 ### Worker
 - `worker/tasks/build.py` - Static site build pipeline (clone → install → build)
 - `worker/tasks/build_python.py` - Python app build pipeline (clone → Docker build → push to ACR → deploy to FC)
-- `worker/tasks/deploy.py` - OSS upload + Edge KV update + ESA cache purge
+- `worker/tasks/deploy.py` - OSS upload + Edge KV update + ESA cache purge + cleanup old deployments
 - `worker/celery_app.py` - Celery configuration
 
 ### Frontend
@@ -75,6 +75,7 @@ Value (JSON):
 - `frontend/src/pages/ProjectDetailPage.tsx` - Project dashboard with deployments
 - `frontend/src/pages/ProjectSettingsPage.tsx` - Project settings (build config, domains, env vars)
 - `frontend/src/components/EnvironmentVariables.tsx` - Env vars management UI
+- `frontend/src/components/DomainsManagement.tsx` - Custom domain management (DNS config, deployment promotion, auto-update toggle)
 
 ### Edge
 - `edge-routine.js` - Single source of truth for ESA Edge Routine code
@@ -94,6 +95,22 @@ Value (JSON):
 - Edge Routine APIs are on ESA endpoint (2024-09-10), not DCDN (2018-01-15)
 - Edge KV uses `new EdgeKV({ namespace: "miaobu" })` constructor (not `EDGE_KV` global)
 - Edge Routine format is ES Module (`export default { async fetch(request, env) {...} }`)
+- `GetKv` API action returns 403 UnsupportedHTTPMethod — **do not use** `esa_service.get_edge_kv()`. Use `put_edge_kv()` directly with constructed values.
+
+### FastAPI Endpoint Gotchas
+- When a POST endpoint receives JSON body data, parameters MUST be wrapped in a Pydantic `BaseModel` class. Bare function parameters (e.g., `deployment_id: int`) are treated as **query parameters** by FastAPI, NOT parsed from JSON body. This causes silent failures where the value is always `None`.
+- The `DeploymentStatus` enum exists in TWO places: `backend/app/models/__init__.py` (SQLAlchemy) AND `backend/app/schemas/__init__.py` (Pydantic response validation). Both must be kept in sync — adding a status to one but not the other causes 500 ResponseValidationError.
+- When adding a new enum value to PostgreSQL: `ALTER TYPE deploymentstatus ADD VALUE IF NOT EXISTS 'PURGED'` — note enum labels are UPPERCASE in this project's DB.
+
+### Deployment Lifecycle
+- Statuses: `queued` → `cloning` → `building` → `uploading` → `deploying` → `deployed` → (optionally) `purged`
+- `PURGED`: deployment record preserved for history, but OSS files deleted. Cannot be promoted. Excluded from domain deployment lists.
+- Cleanup keeps 3 most recent `DEPLOYED` + any pinned to custom domains via `active_deployment_id`
+
+### Frontend State Gotchas
+- Modals that use `selectedDomain` (local state set via `setSelectedDomain`): this is a **stale snapshot**. After mutations, the local state must be updated manually (e.g., `setSelectedDomain(prev => ({...prev, field: newValue}))`), or the UI won't reflect changes until the modal is closed and reopened.
+- Deploy button: `isDeploying` must stay `true` until `await refetch()` completes, otherwise there's a gap where neither `isDeploying` nor `hasActiveDeployment` is true and the button becomes clickable.
+- Long modal content with `flex items-center justify-center`: when content exceeds viewport height, `items-center` pushes the top out of scrollable area. Use `items-start` instead.
 
 ### Build Detection
 - `BuildDetector` in `build_detector.py` detects framework from `package.json` dependencies
@@ -102,10 +119,11 @@ Value (JSON):
 - Python project detection looks for requirements.txt, pyproject.toml, Pipfile
 
 ### Deploy Flow (Static)
-1. Clone repo → install deps → build → upload to OSS (`projects/{slug}/`)
-2. Write Edge KV entry for `{slug}.metavm.tech`
+1. Clone repo → install deps → build → upload to OSS (`projects/{slug}/{deployment_id}/`)
+2. Write Edge KV entry for `{slug}.metavm.tech` with versioned `oss_path`
 3. Update custom domains with auto-update enabled
 4. Purge ESA cache for hostname
+5. Trigger `cleanup_old_deployments` (keeps 3 most recent, protects custom-domain-pinned, marks old as `PURGED`)
 
 ### Deploy Flow (Python)
 1. Clone repo → Docker build → push to ACR → deploy to FC
@@ -119,6 +137,10 @@ Value (JSON):
 docker compose up -d --build backend
 docker compose up -d --build worker
 ```
+
+### Container volume mounts
+- **backend**: only `backend/` is mounted at `/app`. Scripts outside `backend/` are NOT accessible inside the container.
+- **worker**: `worker/` is mounted at `/app`. Has Docker socket access.
 
 ### Database access
 ```bash
