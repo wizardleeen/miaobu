@@ -97,6 +97,7 @@ def upload_to_oss(self, deployment_id: int, build_output_dir: str):
             kv_value = json.dumps({
                 "type": "static",
                 "oss_path": oss_prefix.rstrip('/'),
+                "is_spa": project.is_spa,
                 "project_slug": project.slug,
                 "deployment_id": deployment.id,
                 "commit_sha": deployment.commit_sha,

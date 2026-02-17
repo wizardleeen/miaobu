@@ -82,6 +82,7 @@ class Project(Base):
     build_command = Column(String(512), default="npm run build")
     install_command = Column(String(512), default="npm install")
     output_directory = Column(String(255), default="dist")
+    is_spa = Column(Boolean, default=True, nullable=False)
     node_version = Column(String(20), default="18")
 
     # Python project configuration

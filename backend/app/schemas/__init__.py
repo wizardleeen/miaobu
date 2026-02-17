@@ -63,6 +63,7 @@ class ProjectBase(BaseModel):
     build_command: str = Field(default="npm run build", max_length=512)
     install_command: str = Field(default="npm install", max_length=512)
     output_directory: str = Field(default="dist", max_length=255)
+    is_spa: bool = Field(default=True)
     node_version: str = Field(default="18", max_length=20)
     python_version: Optional[str] = Field(None, max_length=20)
     start_command: Optional[str] = Field(None, max_length=512)
@@ -83,6 +84,7 @@ class ProjectUpdate(BaseModel):
     build_command: Optional[str] = Field(None, max_length=512)
     install_command: Optional[str] = Field(None, max_length=512)
     output_directory: Optional[str] = Field(None, max_length=255)
+    is_spa: Optional[bool] = None
     node_version: Optional[str] = Field(None, max_length=20)
     python_version: Optional[str] = Field(None, max_length=20)
     start_command: Optional[str] = Field(None, max_length=512)

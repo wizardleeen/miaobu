@@ -198,11 +198,13 @@ async def import_repository(
                 project_kwargs["install_command"] = custom_config.get("install_command", build_config.get("install_command", "npm install"))
                 project_kwargs["output_directory"] = custom_config.get("output_directory", build_config.get("output_directory", "dist"))
                 project_kwargs["node_version"] = custom_config.get("node_version", build_config.get("node_version", "18"))
+                project_kwargs["is_spa"] = custom_config.get("is_spa", build_config.get("is_spa", True))
             else:
                 project_kwargs["build_command"] = build_config.get("build_command", "npm run build")
                 project_kwargs["install_command"] = build_config.get("install_command", "npm install")
                 project_kwargs["output_directory"] = build_config.get("output_directory", "dist")
                 project_kwargs["node_version"] = build_config.get("node_version", "18")
+                project_kwargs["is_spa"] = build_config.get("is_spa", True)
 
         # Create project
         project = Project(**project_kwargs)

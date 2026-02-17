@@ -31,74 +31,86 @@ class BuildDetector:
             "indicators": ["@slidev/cli"],
             "build_command": "npm run build",
             "output_directory": "dist",
-            "dev_command": "npm run dev"
+            "dev_command": "npm run dev",
+            "is_spa": False
         },
         "astro": {
             "indicators": ["astro"],
             "build_command": "npm run build",
             "output_directory": "dist",
-            "dev_command": "npm run dev"
+            "dev_command": "npm run dev",
+            "is_spa": False
         },
         "vite": {
             "indicators": ["vite", "@vitejs/plugin-react"],
             "build_command": "npm run build",
             "output_directory": "dist",
-            "dev_command": "npm run dev"
+            "dev_command": "npm run dev",
+            "is_spa": True
         },
         "create-react-app": {
             "indicators": ["react-scripts"],
             "build_command": "npm run build",
             "output_directory": "build",
-            "dev_command": "npm start"
+            "dev_command": "npm start",
+            "is_spa": True
         },
         "next": {
             "indicators": ["next"],
             "build_command": "npm run build && npm run export",
             "output_directory": "out",
             "dev_command": "npm run dev",
-            "note": "Requires static export configuration"
+            "note": "Requires static export configuration",
+            "is_spa": False
         },
         "vue-cli": {
             "indicators": ["@vue/cli-service"],
             "build_command": "npm run build",
             "output_directory": "dist",
-            "dev_command": "npm run serve"
+            "dev_command": "npm run serve",
+            "is_spa": True
         },
         "nuxt": {
             "indicators": ["nuxt"],
             "build_command": "npm run generate",
             "output_directory": "dist",
-            "dev_command": "npm run dev"
+            "dev_command": "npm run dev",
+            "is_spa": False
         },
         "gatsby": {
             "indicators": ["gatsby"],
             "build_command": "npm run build",
             "output_directory": "public",
-            "dev_command": "npm run develop"
+            "dev_command": "npm run develop",
+            "is_spa": False
         },
         "angular": {
             "indicators": ["@angular/cli"],
             "build_command": "npm run build",
             "output_directory": "dist",
-            "dev_command": "ng serve"
+            "dev_command": "ng serve",
+            "is_spa": True
         },
         "svelte": {
             "indicators": ["svelte"],
             "build_command": "npm run build",
             "output_directory": "public/build",
-            "dev_command": "npm run dev"
+            "dev_command": "npm run dev",
+            "is_spa": True
         },
         "docusaurus": {
             "indicators": ["@docusaurus/core"],
             "build_command": "npm run build",
             "output_directory": "build",
-            "dev_command": "npm run start"
+            "dev_command": "npm run start",
+            "is_spa": False
         },
         "vuepress": {
             "indicators": ["vuepress"],
             "build_command": "npm run build",
             "output_directory": "docs/.vuepress/dist",
-            "dev_command": "npm run dev"
+            "dev_command": "npm run dev",
+            "is_spa": False
         }
     }
 
@@ -155,12 +167,14 @@ class BuildDetector:
             output_directory = framework_config["output_directory"]
             dev_command = framework_config.get("dev_command", "npm run dev")
             note = framework_config.get("note")
+            is_spa = framework_config.get("is_spa", True)
         else:
             # Try to infer from scripts
             build_command = scripts.get("build", "npm run build")
             output_directory = BuildDetector._guess_output_directory(build_command, all_deps)
             dev_command = scripts.get("dev") or scripts.get("start", "npm start")
             note = None
+            is_spa = True  # Default to SPA for unknown frameworks
 
         # Detect Node version from engines
         node_version = BuildDetector._detect_node_version(package_data)
@@ -175,6 +189,7 @@ class BuildDetector:
             "output_directory": output_directory,
             "dev_command": dev_command,
             "node_version": node_version,
+            "is_spa": is_spa,
             "has_typescript": "typescript" in all_deps,
             "package_manager": BuildDetector._detect_package_manager(package_data),
             "scripts": scripts,
@@ -563,6 +578,7 @@ class BuildDetector:
             "output_directory": "dist",
             "dev_command": "npm run dev",
             "node_version": "18",
+            "is_spa": True,
             "has_typescript": False,
             "package_manager": "npm",
             "scripts": {},

@@ -577,6 +577,7 @@ class ESAService:
                     'deployment_id': deployment_id,
                     'commit_sha': commit_sha,
                     'oss_path': oss_path,
+                    'is_spa': project.is_spa,
                     'updated_at': datetime.utcnow().isoformat(),
                 }
         finally:

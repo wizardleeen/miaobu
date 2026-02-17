@@ -45,7 +45,7 @@ export default {
             console.error(`[Miaobu] Static mapping missing oss_path:`, mapping);
             return new Response('Invalid mapping: missing oss_path', { status: 500 });
           }
-          return rewriteToOSS(request, url, mapping.oss_path);
+          return rewriteToOSS(request, url, mapping.oss_path, mapping.is_spa !== false);
         }
       }
 
@@ -82,15 +82,33 @@ export default {
  * Rewrite request path for static content, then let ESA handle
  * origin fetch + caching. By keeping the same host and only changing
  * the path, the request goes through ESA's normal cache pipeline.
+ *
+ * SPA mode: all non-file paths resolve to /index.html (for client-side routing)
+ * MPA mode: /blog resolves to /blog/index.html, / resolves to /index.html
  */
-function rewriteToOSS(request, url, ossPath) {
-  let path = `/${ossPath}${url.pathname}`;
-  if (path.endsWith('/')) {
-    path = `${path}index.html`;
+function rewriteToOSS(request, url, ossPath, isSPA) {
+  let path = url.pathname;
+
+  // Check if path has a file extension (e.g., .js, .css, .html, .png)
+  const lastSegment = path.split('/').pop();
+  const hasExtension = lastSegment && lastSegment.includes('.');
+
+  if (!hasExtension) {
+    if (isSPA) {
+      // SPA: all non-file paths serve /index.html
+      path = '/index.html';
+    } else {
+      // MPA: /blog -> /blog/index.html, / -> /index.html
+      if (!path.endsWith('/')) {
+        path = path + '/';
+      }
+      path = path + 'index.html';
+    }
   }
 
-  const newUrl = `${url.protocol}//${url.host}${path}${url.search}`;
-  console.log(`[Miaobu] Rewrite: ${url.pathname} -> ${path}`);
+  const fullPath = `/${ossPath}${path}`;
+  const newUrl = `${url.protocol}//${url.host}${fullPath}${url.search}`;
+  console.log(`[Miaobu] Rewrite (${isSPA ? 'SPA' : 'MPA'}): ${url.pathname} -> ${fullPath}`);
 
   return fetch(new Request(newUrl, {
     method: request.method,

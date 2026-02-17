@@ -18,6 +18,7 @@ export default function ProjectSettingsPage() {
     build_command: '',
     install_command: '',
     output_directory: '',
+    is_spa: true,
     node_version: '18',
     python_version: '',
     start_command: '',
@@ -40,6 +41,7 @@ export default function ProjectSettingsPage() {
         build_command: project.build_command || '',
         install_command: project.install_command || '',
         output_directory: project.output_directory || '',
+        is_spa: project.is_spa ?? true,
         node_version: project.node_version || '18',
         python_version: project.python_version || '',
         start_command: project.start_command || '',
@@ -269,6 +271,23 @@ export default function ProjectSettingsPage() {
                         <option value="20">20</option>
                       </select>
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-[--border] text-accent focus:ring-accent"
+                        checked={formData.is_spa}
+                        onChange={(e) =>
+                          setFormData({ ...formData, is_spa: e.target.checked })
+                        }
+                      />
+                      <span className="text-sm font-medium text-[--text-secondary]">单页应用 (SPA)</span>
+                    </label>
+                    <p className="text-xs text-[--text-tertiary] mt-1 ml-6">
+                      开启后，所有路径将指向 index.html（适用于 React、Vue 等前端路由项目）
+                    </p>
                   </div>
                 </>
               )}
