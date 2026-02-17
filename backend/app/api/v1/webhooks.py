@@ -1,5 +1,7 @@
 import hmac
 import hashlib
+import os
+from celery import Celery
 from fastapi import APIRouter, Depends, Request, Header, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -9,6 +11,10 @@ from ...models import Project, Deployment, DeploymentStatus
 from ...core.exceptions import NotFoundException, BadRequestException
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
+
+# Initialize Celery client
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+celery_app = Celery('miaobu-worker', broker=REDIS_URL, backend=REDIS_URL)
 
 
 def verify_github_signature(payload: bytes, signature: str, secret: str) -> bool:
@@ -132,16 +138,23 @@ async def github_webhook(
     db.commit()
     db.refresh(deployment)
 
-    # Queue build task
-    from worker.tasks.build import build_and_deploy
-    task = build_and_deploy.apply_async(
-        args=[deployment.id],
-        queue='builds'
-    )
+    # Queue build task using Celery send_task
+    try:
+        task = celery_app.send_task(
+            'tasks.build.build_and_deploy',
+            args=[deployment.id],
+            queue='builds'
+        )
 
-    # Update deployment with task ID
-    deployment.celery_task_id = task.id
-    db.commit()
+        # Update deployment with task ID
+        deployment.celery_task_id = task.id
+        db.commit()
+    except Exception as e:
+        # If task queueing fails, mark deployment as failed
+        deployment.status = DeploymentStatus.FAILED
+        deployment.error_message = f"Failed to queue build task: {str(e)}"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Failed to queue deployment: {str(e)}")
 
     return {
         "status": "success",

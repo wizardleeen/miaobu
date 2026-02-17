@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 from typing import Optional, Dict, Any
 from ..config import get_settings
@@ -208,10 +209,17 @@ class GitHubService:
 
     @staticmethod
     async def analyze_repository(
-        access_token: str, owner: str, repo: str, branch: Optional[str] = None
+        access_token: str, owner: str, repo: str, branch: Optional[str] = None, root_directory: str = ""
     ) -> Dict[str, Any]:
         """
         Analyze repository and detect build configuration.
+
+        Args:
+            access_token: GitHub access token
+            owner: Repository owner
+            repo: Repository name
+            branch: Branch name (defaults to default branch)
+            root_directory: Subdirectory path for monorepo support (e.g., "frontend")
 
         Returns repository info with auto-detected build settings.
         """
@@ -223,24 +231,63 @@ class GitHubService:
         if not branch:
             branch = repo_info.get("default_branch", "main")
 
-        # Try to get package.json
-        package_json = await GitHubService.get_file_content(
-            access_token, owner, repo, "package.json", branch
+        # Construct file paths with root_directory
+        def get_path(filename: str) -> str:
+            return f"{root_directory}/{filename}" if root_directory else filename
+
+        # Fetch multiple configuration files for comprehensive detection
+        package_json_path = get_path("package.json")
+        nvmrc_path = get_path(".nvmrc")
+        node_version_path = get_path(".node-version")
+        netlify_toml_path = get_path("netlify.toml")
+        vercel_json_path = get_path("vercel.json")
+
+        # Fetch all files concurrently (if one fails, it returns None)
+        package_json, nvmrc, node_version_file, netlify_toml, vercel_json = await asyncio.gather(
+            GitHubService.get_file_content(access_token, owner, repo, package_json_path, branch),
+            GitHubService.get_file_content(access_token, owner, repo, nvmrc_path, branch),
+            GitHubService.get_file_content(access_token, owner, repo, node_version_path, branch),
+            GitHubService.get_file_content(access_token, owner, repo, netlify_toml_path, branch),
+            GitHubService.get_file_content(access_token, owner, repo, vercel_json_path, branch),
         )
 
         if package_json:
             # Detect build configuration from package.json
             build_config = BuildDetector.detect_from_package_json(package_json)
+
+            # Detect Node version from multiple sources
+            node_version = BuildDetector.detect_node_version_from_files(
+                package_json=package_json,
+                nvmrc=nvmrc,
+                node_version_file=node_version_file,
+                netlify_toml=netlify_toml,
+                vercel_json=vercel_json
+            )
+            build_config["node_version"] = node_version
+
+            # Add detection source info for debugging
+            detection_sources = []
+            if nvmrc:
+                detection_sources.append(".nvmrc")
+            if node_version_file:
+                detection_sources.append(".node-version")
+            if netlify_toml and "NODE_VERSION" in netlify_toml:
+                detection_sources.append("netlify.toml")
+            if vercel_json:
+                detection_sources.append("vercel.json")
+
+            build_config["node_version_source"] = detection_sources[0] if detection_sources else "default"
         else:
             # No package.json found, use defaults
+            not_found_msg = f"No package.json found at {package_json_path}" if root_directory else "No package.json found - this may not be a Node.js project"
             build_config = BuildDetector._get_default_config(
                 "unknown",
-                "No package.json found - this may not be a Node.js project"
+                not_found_msg
             )
 
         # Get repository file tree for additional analysis
         files = await GitHubService.get_repository_tree(access_token, owner, repo, branch)
-        repo_structure = BuildDetector.analyze_repository_structure(files)
+        repo_structure = BuildDetector.analyze_repository_structure(files, root_directory)
 
         # Override lock file detection if found in structure
         if repo_structure["lock_file"]:
@@ -266,6 +313,7 @@ class GitHubService:
             },
             "build_config": build_config,
             "repo_structure": repo_structure,
+            "root_directory": root_directory,
         }
 
     @staticmethod

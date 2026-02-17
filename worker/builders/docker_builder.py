@@ -180,7 +180,8 @@ class DockerBuilder:
         repo_dir: Path,
         install_command: str,
         node_version: str,
-        use_cache: bool = True
+        use_cache: bool = True,
+        root_directory: str = ""
     ) -> bool:
         """
         Install dependencies in Docker container.
@@ -190,6 +191,7 @@ class DockerBuilder:
             install_command: Install command (npm install, yarn install, etc.)
             node_version: Node.js version
             use_cache: Whether to use cached node_modules
+            root_directory: Subdirectory path for monorepo support (e.g., "frontend")
 
         Returns:
             True if successful
@@ -198,13 +200,18 @@ class DockerBuilder:
         self.log(f"Command: {install_command}")
         self.log(f"Node version: {node_version}")
         self.log(f"Repository directory: {repo_dir.absolute()}")
+        if root_directory:
+            self.log(f"Root directory (monorepo): {root_directory}")
+
+        # Determine working directory path
+        work_dir_path = f"{root_directory}/" if root_directory else ""
 
         # Verify package.json exists
-        package_json = repo_dir / "package.json"
+        package_json = repo_dir / root_directory / "package.json" if root_directory else repo_dir / "package.json"
         if not package_json.exists():
             self.log(f"ERROR: package.json not found at {package_json}", "ERROR")
-            self.log(f"Directory contents: {list(repo_dir.iterdir())}", "ERROR")
-            raise Exception(f"No package.json found in {repo_dir}")
+            self.log(f"Directory contents: {list((repo_dir / root_directory).iterdir() if root_directory else repo_dir.iterdir())}", "ERROR")
+            raise Exception(f"No package.json found in {package_json}")
         else:
             self.log(f"✓ Found package.json at {package_json}")
 
@@ -260,6 +267,8 @@ class DockerBuilder:
 
             # Run installation using Docker CLI
             # Explicitly unset proxy for npm/pnpm to avoid slow downloads
+            # Set working directory to root_directory if specified (for monorepo support)
+            docker_work_dir = f"/app/{root_directory}" if root_directory else "/app"
             docker_cmd = [
                 "docker", "run",
                 "--rm",
@@ -268,7 +277,7 @@ class DockerBuilder:
                 "-e", "http_proxy=",
                 "-e", "https_proxy=",
                 "-v", f"{repo_dir.absolute()}:/app",
-                "-w", "/app",
+                "-w", docker_work_dir,
                 f"node:{node_version}-alpine",
                 "sh", "-c", final_command
             ]
@@ -319,7 +328,8 @@ class DockerBuilder:
         self,
         repo_dir: Path,
         build_command: str,
-        node_version: str
+        node_version: str,
+        root_directory: str = ""
     ) -> Path:
         """
         Run build command in Docker container.
@@ -328,12 +338,15 @@ class DockerBuilder:
             repo_dir: Repository directory
             build_command: Build command to execute
             node_version: Node.js version
+            root_directory: Subdirectory path for monorepo support (e.g., "frontend")
 
         Returns:
             Path to build output directory
         """
         self.log("Running build command...")
         self.log(f"Command: {build_command}")
+        if root_directory:
+            self.log(f"Root directory (monorepo): {root_directory}")
 
         try:
             # Run build using Docker CLI
@@ -342,18 +355,21 @@ class DockerBuilder:
             # Prepare the command - install pnpm/yarn if needed and fix build command
             final_command = build_command
 
+            # Determine the working directory for package manager detection
+            work_dir = repo_dir / root_directory if root_directory else repo_dir
+
             # Detect which package manager was used for installation
             pkg_manager = "npm"  # default
-            if (repo_dir / "pnpm-lock.yaml").exists():
+            if (work_dir / "pnpm-lock.yaml").exists():
                 pkg_manager = "pnpm"
-            elif (repo_dir / "yarn.lock").exists():
+            elif (work_dir / "yarn.lock").exists():
                 pkg_manager = "yarn"
 
             # If command doesn't start with a package manager, check if it should be run as a script
             if not build_command.startswith(("npm", "pnpm", "yarn", "npx")):
                 # Check if there's a matching script in package.json
                 import json
-                package_json_path = repo_dir / "package.json"
+                package_json_path = work_dir / "package.json"
                 if package_json_path.exists():
                     with open(package_json_path) as f:
                         package_data = json.load(f)
@@ -383,6 +399,8 @@ class DockerBuilder:
 
             # Unset proxy for npm/pnpm to avoid slow downloads
             # Add environment variables for better build compatibility
+            # Set working directory to root_directory if specified (for monorepo support)
+            docker_work_dir = f"/app/{root_directory}" if root_directory else "/app"
             docker_cmd = [
                 "docker", "run",
                 "--rm",
@@ -395,7 +413,7 @@ class DockerBuilder:
                 "-e", "CI=true",                      # Indicate CI environment
                 "-e", "NO_COLOR=1",                   # Disable color output for cleaner logs
                 "-v", f"{repo_dir.absolute()}:/app",
-                "-w", "/app",
+                "-w", docker_work_dir,
                 f"node:{node_version}-alpine",
                 "sh", "-c", final_command
             ]

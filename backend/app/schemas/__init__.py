@@ -51,6 +51,7 @@ class UserResponse(UserBase):
 # Project Schemas
 class ProjectBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
+    root_directory: str = Field(default="", max_length=255, description="Subdirectory for monorepo support (e.g., 'frontend')")
     build_command: str = Field(default="npm run build", max_length=512)
     install_command: str = Field(default="npm install", max_length=512)
     output_directory: str = Field(default="dist", max_length=255)
@@ -66,6 +67,7 @@ class ProjectCreate(ProjectBase):
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
+    root_directory: Optional[str] = Field(None, max_length=255, description="Subdirectory for monorepo support (e.g., 'frontend')")
     build_command: Optional[str] = Field(None, max_length=512)
     install_command: Optional[str] = Field(None, max_length=512)
     output_directory: Optional[str] = Field(None, max_length=255)

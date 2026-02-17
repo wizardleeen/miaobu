@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import httpx
 
 from ...database import get_db
 from ...models import User, Project
@@ -83,10 +84,13 @@ async def analyze_repository(
     owner: str,
     repo: str,
     branch: Optional[str] = None,
+    root_directory: Optional[str] = Query(None, description="Subdirectory path for monorepo support (e.g., 'frontend')"),
     current_user: User = Depends(get_current_user)
 ):
     """
     Analyze a GitHub repository and detect build configuration.
+
+    Supports monorepo projects via the root_directory parameter.
 
     Returns repository info with auto-detected build settings.
     """
@@ -95,7 +99,8 @@ async def analyze_repository(
             current_user.github_access_token,
             owner,
             repo,
-            branch
+            branch,
+            root_directory or ""
         )
         return analysis
 
@@ -108,6 +113,7 @@ async def import_repository(
     owner: str,
     repo: str,
     branch: Optional[str] = None,
+    root_directory: Optional[str] = None,
     custom_config: Optional[dict] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -117,6 +123,7 @@ async def import_repository(
 
     Automatically detects build configuration and creates the project.
     Optionally accepts custom configuration to override auto-detected settings.
+    Supports monorepo projects via the root_directory parameter.
     """
     try:
         # Analyze repository
@@ -124,11 +131,13 @@ async def import_repository(
             current_user.github_access_token,
             owner,
             repo,
-            branch
+            branch,
+            root_directory or ""
         )
 
         repo_info = analysis["repository"]
         build_config = analysis["build_config"]
+        detected_root_dir = analysis.get("root_directory", "")
 
         # Check if already imported
         existing = db.query(Project).filter(
@@ -146,12 +155,14 @@ async def import_repository(
             output_directory = custom_config.get("output_directory", build_config["output_directory"])
             node_version = custom_config.get("node_version", build_config["node_version"])
             project_name = custom_config.get("name", repo_info["name"])
+            root_dir = custom_config.get("root_directory", detected_root_dir)
         else:
             build_command = build_config["build_command"]
             install_command = build_config["install_command"]
             output_directory = build_config["output_directory"]
             node_version = build_config["node_version"]
             project_name = repo_info["name"]
+            root_dir = detected_root_dir
 
         # Generate unique slug
         slug = generate_slug(project_name, current_user.id, db)
@@ -165,6 +176,7 @@ async def import_repository(
             default_branch=repo_info["default_branch"],
             name=project_name,
             slug=slug,
+            root_directory=root_dir,
             build_command=build_command,
             install_command=install_command,
             output_directory=output_directory,
@@ -216,6 +228,75 @@ async def import_repository(
             webhook_error = str(e)
             print(f"Warning: Failed to create webhook for project {project.id}: {e}")
 
+        # Automatically trigger first deployment
+        deployment_triggered = False
+        deployment_id = None
+        deployment_error = None
+        try:
+            from ...models import Deployment, DeploymentStatus
+            from celery import Celery
+            import os
+
+            # Get latest commit info from GitHub
+            try:
+                branch_url = f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/branches/{repo_info['default_branch']}"
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        branch_url,
+                        headers={
+                            "Authorization": f"Bearer {current_user.github_access_token}",
+                            "Accept": "application/vnd.github.v3+json",
+                        }
+                    )
+                    response.raise_for_status()
+                    branch_data = response.json()
+
+                    latest_commit = branch_data['commit']
+                    commit_sha = latest_commit['sha']
+                    commit_message = latest_commit['commit']['message']
+                    commit_author = latest_commit['commit']['author']['name']
+
+            except Exception as e:
+                # Fallback to manual deployment
+                commit_sha = "initial"
+                commit_message = f"Initial deployment after import"
+                commit_author = current_user.github_username
+
+            # Create deployment record
+            deployment = Deployment(
+                project_id=project.id,
+                commit_sha=commit_sha,
+                commit_message=commit_message,
+                commit_author=commit_author,
+                branch=repo_info['default_branch'],
+                status=DeploymentStatus.QUEUED
+            )
+
+            db.add(deployment)
+            db.commit()
+            db.refresh(deployment)
+
+            # Queue Celery task
+            REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+            celery_app = Celery('miaobu-worker', broker=REDIS_URL, backend=REDIS_URL)
+
+            task = celery_app.send_task(
+                'tasks.build.build_and_deploy',
+                args=[deployment.id],
+                queue='builds'
+            )
+
+            deployment.celery_task_id = task.id
+            db.commit()
+
+            deployment_triggered = True
+            deployment_id = deployment.id
+
+        except Exception as e:
+            # Don't fail the import if deployment fails
+            deployment_error = str(e)
+            print(f"Warning: Failed to trigger initial deployment for project {project.id}: {e}")
+
         return {
             "project": {
                 "id": project.id,
@@ -223,6 +304,7 @@ async def import_repository(
                 "slug": project.slug,
                 "github_repo_name": project.github_repo_name,
                 "default_domain": project.default_domain,
+                "root_directory": project.root_directory,
                 "build_command": project.build_command,
                 "install_command": project.install_command,
                 "output_directory": project.output_directory,
@@ -237,6 +319,12 @@ async def import_repository(
             "webhook_status": {
                 "created": webhook_created,
                 "error": webhook_error
+            },
+            "deployment_status": {
+                "triggered": deployment_triggered,
+                "deployment_id": deployment_id,
+                "error": deployment_error,
+                "message": "Initial deployment queued" if deployment_triggered else "Deployment not triggered"
             }
         }
 

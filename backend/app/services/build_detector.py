@@ -8,6 +8,12 @@ class BuildDetector:
 
     # Framework detection patterns
     FRAMEWORK_PATTERNS = {
+        "slidev": {
+            "indicators": ["@slidev/cli"],
+            "build_command": "slidev build",
+            "output_directory": "dist",
+            "dev_command": "slidev"
+        },
         "astro": {
             "indicators": ["astro"],
             "build_command": "npm run build",
@@ -159,26 +165,167 @@ class BuildDetector:
 
     @staticmethod
     def _detect_node_version(package_data: Dict) -> str:
-        """Detect required Node.js version from package.json."""
+        """Detect required Node.js version from package.json engines field."""
         engines = package_data.get("engines", {})
         node_version = engines.get("node", "")
 
         if node_version:
-            # Extract version number (e.g., ">=16.0.0" -> "16", "^18.0.0" -> "18")
-            match = re.search(r"(\d+)", node_version)
-            if match:
-                version = match.group(1)
-                # Map to supported versions
-                version_num = int(version)
-                if version_num >= 20:
-                    return "20"
-                elif version_num >= 18:
-                    return "18"
-                elif version_num >= 16:
-                    return "16"
+            return BuildDetector._normalize_node_version(node_version)
+
+        # No version found in package.json
+        return None
+
+    @staticmethod
+    def _normalize_node_version(version_string: str) -> Optional[str]:
+        """
+        Normalize a Node version string to a major version number.
+
+        Examples:
+            ">=20.0.0" -> "20"
+            "^18.0.0" -> "18"
+            "20" -> "20"
+            "v20.1.0" -> "20"
+        """
+        if not version_string:
+            return None
+
+        # Extract version number (e.g., ">=16.0.0" -> "16", "^18.0.0" -> "18", "v20" -> "20")
+        match = re.search(r"(\d+)", str(version_string))
+        if match:
+            version = match.group(1)
+            version_num = int(version)
+
+            # Map to supported versions
+            if version_num >= 20:
+                return "20"
+            elif version_num >= 18:
+                return "18"
+            elif version_num >= 16:
+                return "16"
+            elif version_num >= 14:
+                return "14"
+
+        return None
+
+    @staticmethod
+    def detect_node_version_from_files(
+        package_json: Optional[str] = None,
+        nvmrc: Optional[str] = None,
+        node_version_file: Optional[str] = None,
+        netlify_toml: Optional[str] = None,
+        vercel_json: Optional[str] = None
+    ) -> str:
+        """
+        Detect Node version from multiple sources, with priority order:
+        1. .nvmrc (most explicit for development)
+        2. .node-version (nodenv standard)
+        3. package.json engines.node
+        4. netlify.toml
+        5. vercel.json
+        6. Default to 18 (LTS)
+
+        Args:
+            package_json: Content of package.json
+            nvmrc: Content of .nvmrc file
+            node_version_file: Content of .node-version file
+            netlify_toml: Content of netlify.toml
+            vercel_json: Content of vercel.json
+
+        Returns:
+            Node version string (e.g., "20", "18", "16")
+        """
+        # Priority 1: .nvmrc
+        if nvmrc:
+            version = BuildDetector._parse_nvmrc(nvmrc)
+            if version:
+                return version
+
+        # Priority 2: .node-version
+        if node_version_file:
+            version = BuildDetector._parse_node_version_file(node_version_file)
+            if version:
+                return version
+
+        # Priority 3: package.json engines.node
+        if package_json:
+            try:
+                package_data = json.loads(package_json)
+                version = BuildDetector._detect_node_version(package_data)
+                if version:
+                    return version
+            except (json.JSONDecodeError, Exception):
+                pass
+
+        # Priority 4: netlify.toml
+        if netlify_toml:
+            version = BuildDetector._parse_netlify_toml(netlify_toml)
+            if version:
+                return version
+
+        # Priority 5: vercel.json
+        if vercel_json:
+            version = BuildDetector._parse_vercel_json(vercel_json)
+            if version:
+                return version
 
         # Default to 18 (LTS)
         return "18"
+
+    @staticmethod
+    def _parse_nvmrc(content: str) -> Optional[str]:
+        """Parse .nvmrc file content."""
+        # .nvmrc typically contains just the version, e.g., "20.1.0" or "v20" or "lts/iron"
+        content = content.strip()
+
+        # Handle LTS codenames
+        lts_mapping = {
+            "lts/iron": "20",
+            "lts/hydrogen": "18",
+            "lts/gallium": "16",
+        }
+
+        if content.lower() in lts_mapping:
+            return lts_mapping[content.lower()]
+
+        return BuildDetector._normalize_node_version(content)
+
+    @staticmethod
+    def _parse_node_version_file(content: str) -> Optional[str]:
+        """Parse .node-version file content."""
+        # Similar to .nvmrc
+        return BuildDetector._normalize_node_version(content.strip())
+
+    @staticmethod
+    def _parse_netlify_toml(content: str) -> Optional[str]:
+        """Parse netlify.toml for NODE_VERSION."""
+        # Look for NODE_VERSION = "20" in [build.environment] section
+        # Simple regex-based parsing (could use toml library for robustness)
+        match = re.search(r'NODE_VERSION\s*=\s*["\']?(\d+)["\']?', content, re.IGNORECASE)
+        if match:
+            return BuildDetector._normalize_node_version(match.group(1))
+        return None
+
+    @staticmethod
+    def _parse_vercel_json(content: str) -> Optional[str]:
+        """Parse vercel.json for Node version."""
+        try:
+            data = json.loads(content)
+
+            # Check build.env.NODE_VERSION
+            node_version = data.get("build", {}).get("env", {}).get("NODE_VERSION")
+            if node_version:
+                return BuildDetector._normalize_node_version(str(node_version))
+
+            # Check buildCommand with NODE_VERSION
+            build_command = data.get("buildCommand", "")
+            match = re.search(r'NODE_VERSION=(\d+)', build_command)
+            if match:
+                return BuildDetector._normalize_node_version(match.group(1))
+
+        except (json.JSONDecodeError, Exception):
+            pass
+
+        return None
 
     @staticmethod
     def _detect_package_manager(package_data: Dict) -> str:
@@ -245,12 +392,13 @@ class BuildDetector:
         }
 
     @staticmethod
-    def analyze_repository_structure(files: list) -> Dict[str, Any]:
+    def analyze_repository_structure(files: list, root_directory: str = "") -> Dict[str, Any]:
         """
         Analyze repository file structure to detect additional information.
 
         Args:
             files: List of file paths in the repository
+            root_directory: Subdirectory path for monorepo support (e.g., "frontend")
 
         Returns:
             Dictionary with additional repository metadata
@@ -264,25 +412,40 @@ class BuildDetector:
             "config_files": []
         }
 
-        for file_path in files:
-            file_lower = file_path.lower()
+        # Normalize root_directory (remove leading/trailing slashes)
+        root_dir = root_directory.strip("/") if root_directory else ""
+        prefix = f"{root_dir}/" if root_dir else ""
 
-            if file_path == "package.json":
+        for file_path in files:
+            # For monorepo support, only analyze files in the root_directory
+            if root_dir and not file_path.startswith(prefix):
+                continue
+
+            # Strip the root_directory prefix for comparison
+            relative_path = file_path[len(prefix):] if prefix else file_path
+            file_lower = relative_path.lower()
+
+            # Only check files directly in the root (not nested subdirectories)
+            if "/" in relative_path:
+                # Skip nested files except for tests
+                if "test" in file_lower or "spec" in file_lower:
+                    analysis["has_tests"] = True
+                continue
+
+            if relative_path == "package.json":
                 analysis["has_package_json"] = True
-            elif file_path == "package-lock.json":
+            elif relative_path == "package-lock.json":
                 analysis["lock_file"] = "npm"
-            elif file_path == "yarn.lock":
+            elif relative_path == "yarn.lock":
                 analysis["lock_file"] = "yarn"
-            elif file_path == "pnpm-lock.yaml":
+            elif relative_path == "pnpm-lock.yaml":
                 analysis["lock_file"] = "pnpm"
-            elif file_path == "tsconfig.json":
+            elif relative_path == "tsconfig.json":
                 analysis["has_typescript"] = True
-            elif file_path in ["Dockerfile", "docker-compose.yml"]:
+            elif relative_path in ["Dockerfile", "docker-compose.yml"]:
                 analysis["has_docker"] = True
-            elif "test" in file_lower or "spec" in file_lower:
-                analysis["has_tests"] = True
-            elif file_path in ["vite.config.js", "vite.config.ts", "next.config.js",
+            elif relative_path in ["vite.config.js", "vite.config.ts", "next.config.js",
                                "vue.config.js", "angular.json", "gatsby-config.js"]:
-                analysis["config_files"].append(file_path)
+                analysis["config_files"].append(relative_path)
 
         return analysis

@@ -67,6 +67,7 @@ class Project(Base):
     slug = Column(String(255), unique=True, nullable=False, index=True)
 
     # Build configuration
+    root_directory = Column(String(255), default="", nullable=False)  # Subdirectory for monorepo support
     build_command = Column(String(512), default="npm run build")
     install_command = Column(String(512), default="npm install")
     output_directory = Column(String(255), default="dist")

@@ -79,7 +79,8 @@ def build_and_deploy(self, deployment_id: int):
                 repo_dir=repo_dir,
                 install_command=project.install_command,
                 node_version=project.node_version,
-                use_cache=True
+                use_cache=True,
+                root_directory=project.root_directory or ""
             )
 
             # Step 3: Run build
@@ -91,15 +92,21 @@ def build_and_deploy(self, deployment_id: int):
             built_dir = builder.run_build(
                 repo_dir=repo_dir,
                 build_command=project.build_command,
-                node_version=project.node_version
+                node_version=project.node_version,
+                root_directory=project.root_directory or ""
             )
 
             # Step 4: Verify output directory exists
-            output_dir = built_dir / project.output_directory
+            # For monorepo, output is relative to root_directory
+            if project.root_directory:
+                base_dir = built_dir / project.root_directory
+            else:
+                base_dir = built_dir
+            output_dir = base_dir / project.output_directory
             if not output_dir.exists():
                 raise Exception(
                     f"Build output directory '{project.output_directory}' not found. "
-                    f"Available directories: {[d.name for d in built_dir.iterdir() if d.is_dir()]}"
+                    f"Available directories: {[d.name for d in base_dir.iterdir() if d.is_dir()]}"
                 )
 
             builder.log("")
