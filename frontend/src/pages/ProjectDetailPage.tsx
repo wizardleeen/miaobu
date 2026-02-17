@@ -15,7 +15,7 @@ export default function ProjectDetailPage() {
     queryKey: ['project', projectId],
     queryFn: () => api.getProject(Number(projectId)),
     enabled: !!projectId,
-    refetchInterval: 5000, // Refetch every 5 seconds to update deployment status
+    refetchInterval: 5000, // 每5秒刷新一次以更新部署状态
   })
 
   const deployMutation = useMutation({
@@ -27,7 +27,7 @@ export default function ProjectDetailPage() {
     },
     onError: () => {
       setIsDeploying(false)
-      alert('Failed to trigger deployment. Please try again.')
+      alert('触发部署失败，请重试')
     },
   })
 
@@ -45,7 +45,7 @@ export default function ProjectDetailPage() {
   }
 
   const handleCancel = (deploymentId: number) => {
-    if (confirm('Are you sure you want to cancel this deployment?')) {
+    if (confirm('确定要取消此次部署吗？')) {
       cancelMutation.mutate(deploymentId)
     }
   }
@@ -64,13 +64,13 @@ export default function ProjectDetailPage() {
     return (
       <Layout>
         <div className="text-center py-16">
-          <h2 className="text-2xl font-bold mb-2">Project not found</h2>
+          <h2 className="text-2xl font-bold mb-2">项目不存在</h2>
         </div>
       </Layout>
     )
   }
 
-  // Check if there's an active deployment
+  // 检查是否有正在进行的部署
   const hasActiveDeployment = project.deployments?.some((d: any) =>
     ['queued', 'cloning', 'building', 'uploading'].includes(d.status)
   )
@@ -88,45 +88,45 @@ export default function ProjectDetailPage() {
             disabled={isDeploying || hasActiveDeployment}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isDeploying ? 'Deploying...' : hasActiveDeployment ? 'Build in Progress' : '🚀 Deploy'}
+            {isDeploying ? '部署中...' : hasActiveDeployment ? '构建中' : '🚀 部署'}
           </button>
           <button
             onClick={() => navigate(`/projects/${projectId}/settings`)}
             className="px-4 py-2 border rounded-lg hover:bg-gray-50"
           >
-            ⚙️ Settings
+            ⚙️ 设置
           </button>
         </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6 mb-8">
         <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold mb-4">Build Configuration</h2>
+          <h2 className="text-xl font-bold mb-4">构建配置</h2>
           <div className="space-y-3">
             <div>
-              <label className="text-sm text-gray-600">Build Command</label>
+              <label className="text-sm text-gray-600">构建命令</label>
               <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.build_command}</p>
             </div>
             <div>
-              <label className="text-sm text-gray-600">Install Command</label>
+              <label className="text-sm text-gray-600">安装命令</label>
               <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.install_command}</p>
             </div>
             <div>
-              <label className="text-sm text-gray-600">Output Directory</label>
+              <label className="text-sm text-gray-600">输出目录</label>
               <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.output_directory}</p>
             </div>
             <div>
-              <label className="text-sm text-gray-600">Node Version</label>
+              <label className="text-sm text-gray-600">Node 版本</label>
               <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.node_version}</p>
             </div>
           </div>
         </div>
 
         <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold mb-4">Deployment Info</h2>
+          <h2 className="text-xl font-bold mb-4">部署信息</h2>
           <div className="space-y-3">
             <div>
-              <label className="text-sm text-gray-600">Default Domain</label>
+              <label className="text-sm text-gray-600">默认域名</label>
               <p className="text-sm">
                 <a
                   href={`https://${project.default_domain}`}
@@ -139,11 +139,11 @@ export default function ProjectDetailPage() {
               </p>
             </div>
             <div>
-              <label className="text-sm text-gray-600">Default Branch</label>
+              <label className="text-sm text-gray-600">默认分支</label>
               <p className="text-sm">{project.default_branch}</p>
             </div>
             <div>
-              <label className="text-sm text-gray-600">Repository</label>
+              <label className="text-sm text-gray-600">代码仓库</label>
               <p className="text-sm">
                 <a
                   href={project.github_repo_url}
@@ -156,20 +156,20 @@ export default function ProjectDetailPage() {
               </p>
             </div>
             <div>
-              <label className="text-sm text-gray-600">Auto Deploy</label>
+              <label className="text-sm text-gray-600">自动部署</label>
               <div className="flex items-center gap-2">
                 {project.webhook_id ? (
                   <>
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      ✓ Enabled
+                      ✓ 已启用
                     </span>
                     <span className="text-xs text-gray-500">
-                      Deploys on push to {project.default_branch}
+                      推送到 {project.default_branch} 时自动部署
                     </span>
                   </>
                 ) : (
                   <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                    Manual Only
+                    仅手动
                   </span>
                 )}
               </div>
@@ -179,7 +179,7 @@ export default function ProjectDetailPage() {
       </div>
 
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-2xl font-bold mb-4">Deployments</h2>
+        <h2 className="text-2xl font-bold mb-4">部署记录</h2>
         {project.deployments && project.deployments.length > 0 ? (
           <div className="space-y-4">
             {project.deployments.map((deployment: any) => (
@@ -192,13 +192,13 @@ export default function ProjectDetailPage() {
           </div>
         ) : (
           <div className="text-center py-8 text-gray-600">
-            <p className="mb-4">No deployments yet</p>
+            <p className="mb-4">暂无部署记录</p>
             <button
               onClick={handleDeploy}
               disabled={isDeploying}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
-              Deploy Now
+              立即部署
             </button>
           </div>
         )}

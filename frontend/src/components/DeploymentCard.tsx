@@ -67,7 +67,7 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
               </span>
             )}
           </div>
-          <p className="font-semibold">{deployment.commit_message || 'No message'}</p>
+          <p className="font-semibold">{deployment.commit_message || '无提交信息'}</p>
           <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
             <span>#{deployment.commit_sha.substring(0, 7)}</span>
             <span>•</span>
@@ -84,21 +84,21 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
               rel="noopener noreferrer"
               className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
             >
-              🚀 Preview
+              预览
             </a>
           )}
           <button
             onClick={() => setShowLogs(!showLogs)}
             className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
           >
-            {showLogs ? 'Hide Logs' : 'View Logs'}
+            {showLogs ? '隐藏日志' : '查看日志'}
           </button>
           {canCancel && onCancel && (
             <button
               onClick={() => onCancel(deployment.id)}
               className="px-3 py-1 text-sm border border-red-300 text-red-700 rounded hover:bg-red-50"
             >
-              Cancel
+              取消
             </button>
           )}
         </div>
@@ -108,7 +108,7 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
         <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg">
           <div className="text-sm space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-green-700 font-semibold">Deployment URL:</span>
+              <span className="text-green-700 font-semibold">部署地址:</span>
               <a
                 href={deployment.deployment_url}
                 target="_blank"
@@ -130,15 +130,15 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
 
       <div className="text-sm text-gray-500">
         {deployment.deployed_at ? (
-          <span>Deployed {new Date(deployment.deployed_at).toLocaleString()}</span>
+          <span>部署于 {new Date(deployment.deployed_at).toLocaleString('zh-CN')}</span>
         ) : (
-          <span>Created {new Date(deployment.created_at).toLocaleString()}</span>
+          <span>创建于 {new Date(deployment.created_at).toLocaleString('zh-CN')}</span>
         )}
       </div>
 
       {deployment.error_message && (
         <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
-          <strong>Error:</strong> {deployment.error_message}
+          <strong>错误:</strong> {deployment.error_message}
         </div>
       )}
 
@@ -147,7 +147,7 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
           {logsData.logs ? (
             <pre className="whitespace-pre-wrap">{logsData.logs}</pre>
           ) : (
-            <p className="text-gray-400">No logs available yet...</p>
+            <p className="text-gray-400">暂无日志...</p>
           )}
         </div>
       )}

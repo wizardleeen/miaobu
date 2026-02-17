@@ -12,6 +12,7 @@ export default function ProjectSettingsPage() {
 
   const [formData, setFormData] = useState({
     name: '',
+    root_directory: '',
     build_command: '',
     install_command: '',
     output_directory: '',
@@ -30,6 +31,7 @@ export default function ProjectSettingsPage() {
     if (project) {
       setFormData({
         name: project.name,
+        root_directory: project.root_directory || '',
         build_command: project.build_command,
         install_command: project.install_command,
         output_directory: project.output_directory,
@@ -43,7 +45,7 @@ export default function ProjectSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       queryClient.invalidateQueries({ queryKey: ['projects'] })
-      alert('Project settings updated successfully!')
+      alert('项目设置更新成功！')
     },
   })
 
@@ -81,7 +83,7 @@ export default function ProjectSettingsPage() {
     return (
       <Layout>
         <div className="text-center py-16">
-          <h2 className="text-2xl font-bold mb-2">Project not found</h2>
+          <h2 className="text-2xl font-bold mb-2">未找到项目</h2>
         </div>
       </Layout>
     )
@@ -95,19 +97,19 @@ export default function ProjectSettingsPage() {
             onClick={() => navigate(`/projects/${projectId}`)}
             className="text-blue-600 hover:underline mb-4"
           >
-            ← Back to project
+            ← 返回项目
           </button>
-          <h1 className="text-3xl font-bold mb-2">Project Settings</h1>
+          <h1 className="text-3xl font-bold mb-2">项目设置</h1>
           <p className="text-gray-600">{project.github_repo_name}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* General Settings */}
           <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-bold mb-4">General</h2>
+            <h2 className="text-xl font-bold mb-4">常规</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Project Name</label>
+                <label className="block text-sm font-medium mb-1">项目名称</label>
                 <input
                   type="text"
                   required
@@ -118,7 +120,7 @@ export default function ProjectSettingsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Project Slug</label>
+                <label className="block text-sm font-medium mb-1">项目标识</label>
                 <input
                   type="text"
                   disabled
@@ -126,12 +128,12 @@ export default function ProjectSettingsPage() {
                   value={project.slug}
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Slug cannot be changed after creation
+                  项目标识创建后无法修改
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Default Domain</label>
+                <label className="block text-sm font-medium mb-1">默认域名</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -145,7 +147,7 @@ export default function ProjectSettingsPage() {
                     rel="noopener noreferrer"
                     className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
                   >
-                    Visit
+                    访问
                   </a>
                 </div>
               </div>
@@ -154,10 +156,26 @@ export default function ProjectSettingsPage() {
 
           {/* Build Settings */}
           <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-bold mb-4">Build Configuration</h2>
+            <h2 className="text-xl font-bold mb-4">构建配置</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Build Command</label>
+                <label className="block text-sm font-medium mb-1">
+                  根目录（支持 Monorepo）
+                </label>
+                <input
+                  type="text"
+                  className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                  value={formData.root_directory}
+                  onChange={(e) => setFormData({ ...formData, root_directory: e.target.value })}
+                  placeholder="例如：frontend（单项目仓库留空）"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Monorepo 项目中包含 package.json 的子目录
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">构建命令</label>
                 <input
                   type="text"
                   required
@@ -169,7 +187,7 @@ export default function ProjectSettingsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Install Command</label>
+                <label className="block text-sm font-medium mb-1">安装命令</label>
                 <input
                   type="text"
                   required
@@ -182,7 +200,7 @@ export default function ProjectSettingsPage() {
 
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Output Directory</label>
+                  <label className="block text-sm font-medium mb-1">输出目录</label>
                   <input
                     type="text"
                     required
@@ -196,7 +214,7 @@ export default function ProjectSettingsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Node Version</label>
+                  <label className="block text-sm font-medium mb-1">Node 版本</label>
                   <select
                     className="w-full border rounded-lg px-3 py-2"
                     value={formData.node_version}
@@ -213,10 +231,10 @@ export default function ProjectSettingsPage() {
 
           {/* Git Settings */}
           <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-bold mb-4">Git Repository</h2>
+            <h2 className="text-xl font-bold mb-4">代码仓库</h2>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Repository</label>
+                <label className="block text-sm font-medium mb-1">仓库</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -230,13 +248,13 @@ export default function ProjectSettingsPage() {
                     rel="noopener noreferrer"
                     className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
                   >
-                    View on GitHub
+                    在 GitHub 查看
                   </a>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Default Branch</label>
+                <label className="block text-sm font-medium mb-1">默认分支</label>
                 <input
                   type="text"
                   disabled
@@ -259,28 +277,27 @@ export default function ProjectSettingsPage() {
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               disabled={updateMutation.isPending}
             >
-              {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+              {updateMutation.isPending ? '保存中...' : '保存更改'}
             </button>
           </div>
 
           {updateMutation.isError && (
             <div className="bg-red-50 text-red-800 p-3 rounded-lg text-sm">
-              Failed to update project settings. Please try again.
+              更新项目设置失败，请重试。
             </div>
           )}
         </form>
 
         {/* Danger Zone */}
         <div className="mt-8 bg-red-50 border border-red-200 p-6 rounded-lg">
-          <h2 className="text-xl font-bold text-red-800 mb-2">Danger Zone</h2>
+          <h2 className="text-xl font-bold text-red-800 mb-2">危险操作</h2>
           <p className="text-sm text-red-700 mb-4">
-            Deleting a project is permanent and cannot be undone. All deployments and settings will
-            be lost.
+            删除项目是永久性操作，无法撤销。所有部署和设置都将丢失。
           </p>
           {showDeleteConfirm && (
             <div className="mb-4 p-3 bg-red-100 border border-red-300 rounded-lg">
               <p className="text-sm text-red-800 font-semibold">
-                Are you sure? This action cannot be undone!
+                确认操作？此操作无法撤销！
               </p>
             </div>
           )}
@@ -290,7 +307,7 @@ export default function ProjectSettingsPage() {
                 onClick={() => setShowDeleteConfirm(false)}
                 className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
-                Cancel
+                取消
               </button>
             )}
             <button
@@ -299,10 +316,10 @@ export default function ProjectSettingsPage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending
-                ? 'Deleting...'
+                ? '删除中...'
                 : showDeleteConfirm
-                ? 'Confirm Delete'
-                : 'Delete Project'}
+                ? '确认删除'
+                : '删除项目'}
             </button>
           </div>
         </div>

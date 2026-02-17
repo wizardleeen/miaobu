@@ -50,24 +50,24 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b">
-          <h2 className="text-2xl font-bold">Create New Project</h2>
+          <h2 className="text-2xl font-bold">创建新项目</h2>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Project Name *</label>
+            <label className="block text-sm font-medium mb-1">项目名称 *</label>
             <input
               type="text"
               required
               className="w-full border rounded-lg px-3 py-2"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="My Awesome Project"
+              placeholder="我的项目"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">GitHub Repository *</label>
+            <label className="block text-sm font-medium mb-1">GitHub 仓库 *</label>
             <input
               type="text"
               required
@@ -76,11 +76,11 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
               onChange={(e) => setFormData({ ...formData, github_repo_name: e.target.value })}
               placeholder="username/repository"
             />
-            <p className="text-sm text-gray-500 mt-1">Format: owner/repo</p>
+            <p className="text-sm text-gray-500 mt-1">格式: owner/repo</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Repository URL *</label>
+            <label className="block text-sm font-medium mb-1">仓库地址 *</label>
             <input
               type="url"
               required
@@ -92,7 +92,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Repository ID *</label>
+            <label className="block text-sm font-medium mb-1">仓库 ID *</label>
             <input
               type="number"
               required
@@ -101,12 +101,12 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
               onChange={(e) => setFormData({ ...formData, github_repo_id: Number(e.target.value) })}
               placeholder="123456789"
             />
-            <p className="text-sm text-gray-500 mt-1">Find this in GitHub API response</p>
+            <p className="text-sm text-gray-500 mt-1">从 GitHub API 响应中获取</p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Build Command</label>
+              <label className="block text-sm font-medium mb-1">构建命令</label>
               <input
                 type="text"
                 className="w-full border rounded-lg px-3 py-2"
@@ -116,7 +116,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Output Directory</label>
+              <label className="block text-sm font-medium mb-1">输出目录</label>
               <input
                 type="text"
                 className="w-full border rounded-lg px-3 py-2"
@@ -128,7 +128,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
 
           <div className="grid md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Default Branch</label>
+              <label className="block text-sm font-medium mb-1">默认分支</label>
               <input
                 type="text"
                 className="w-full border rounded-lg px-3 py-2"
@@ -138,7 +138,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Node Version</label>
+              <label className="block text-sm font-medium mb-1">Node 版本</label>
               <select
                 className="w-full border rounded-lg px-3 py-2"
                 value={formData.node_version}
@@ -153,7 +153,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
 
           {createProjectMutation.isError && (
             <div className="bg-red-50 text-red-800 p-3 rounded-lg text-sm">
-              Failed to create project. Please check your input and try again.
+              创建项目失败，请检查输入并重试。
             </div>
           )}
 
@@ -164,14 +164,14 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
               className="px-4 py-2 border rounded-lg hover:bg-gray-50"
               disabled={createProjectMutation.isPending}
             >
-              Cancel
+              取消
             </button>
             <button
               type="submit"
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               disabled={createProjectMutation.isPending}
             >
-              {createProjectMutation.isPending ? 'Creating...' : 'Create Project'}
+              {createProjectMutation.isPending ? '创建中...' : '创建项目'}
             </button>
           </div>
         </form>

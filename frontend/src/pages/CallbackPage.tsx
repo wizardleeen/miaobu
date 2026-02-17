@@ -20,7 +20,7 @@ export default function CallbackPage() {
     }
 
     if (!token) {
-      setError('Invalid callback parameters')
+      setError('无效的回调参数')
       setTimeout(() => navigate('/login'), 3000)
       return
     }
@@ -40,7 +40,7 @@ export default function CallbackPage() {
     } catch (error) {
       console.error('Authentication failed:', error)
       localStorage.removeItem('token')
-      setError('Authentication failed. Please try again.')
+      setError('登录失败，请重试。')
       setTimeout(() => navigate('/login'), 3000)
     }
   }
@@ -50,9 +50,9 @@ export default function CallbackPage() {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center">
           <div className="text-red-500 text-5xl mb-4">✕</div>
-          <h1 className="text-2xl font-bold mb-2">Authentication Failed</h1>
+          <h1 className="text-2xl font-bold mb-2">登录失败</h1>
           <p className="text-gray-600 mb-4">{error}</p>
-          <p className="text-sm text-gray-500">Redirecting to login...</p>
+          <p className="text-sm text-gray-500">正在跳转到登录页...</p>
         </div>
       </div>
     )
@@ -62,8 +62,8 @@ export default function CallbackPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
       <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <h1 className="text-2xl font-bold mb-2">Authenticating...</h1>
-        <p className="text-gray-600">Please wait while we sign you in</p>
+        <h1 className="text-2xl font-bold mb-2">正在登录...</h1>
+        <p className="text-gray-600">请稍候</p>
       </div>
     </div>
   )

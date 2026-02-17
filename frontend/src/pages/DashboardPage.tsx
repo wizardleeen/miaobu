@@ -14,36 +14,36 @@ export default function DashboardPage() {
   return (
     <Layout>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Welcome back, {user?.github_username}!</h1>
-        <p className="text-gray-600">Manage your deployments and projects</p>
+        <h1 className="text-3xl font-bold mb-2">欢迎回来，{user?.github_username}！</h1>
+        <p className="text-gray-600">管理您的部署和项目</p>
       </div>
 
       <div className="grid md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white p-6 rounded-lg shadow-md">
           <div className="text-3xl mb-2">📦</div>
           <div className="text-2xl font-bold">{projects?.length || 0}</div>
-          <div className="text-gray-600">Projects</div>
+          <div className="text-gray-600">项目总数</div>
         </div>
         <div className="bg-white p-6 rounded-lg shadow-md">
           <div className="text-3xl mb-2">🚀</div>
           <div className="text-2xl font-bold">0</div>
-          <div className="text-gray-600">Active Deployments</div>
+          <div className="text-gray-600">活跃部署</div>
         </div>
         <div className="bg-white p-6 rounded-lg shadow-md">
           <div className="text-3xl mb-2">⚡</div>
           <div className="text-2xl font-bold">0</div>
-          <div className="text-gray-600">Builds This Month</div>
+          <div className="text-gray-600">本月构建次数</div>
         </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">Recent Projects</h2>
+          <h2 className="text-2xl font-bold">最近的项目</h2>
           <Link
             to="/projects"
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
           >
-            View All Projects
+            查看所有项目
           </Link>
         </div>
 
@@ -73,12 +73,12 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="text-center py-8">
-            <p className="text-gray-600 mb-4">No projects yet</p>
+            <p className="text-gray-600 mb-4">暂无项目</p>
             <Link
               to="/projects"
               className="text-blue-600 hover:underline"
             >
-              Create your first project
+              创建您的第一个项目
             </Link>
           </div>
         )}

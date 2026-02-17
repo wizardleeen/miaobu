@@ -24,6 +24,7 @@ export default function ImportRepositoryPage() {
   const [analyzing, setAnalyzing] = useState(false)
   const [analysis, setAnalysis] = useState<any>(null)
   const [customConfig, setCustomConfig] = useState<any>(null)
+  const [rootDirectory, setRootDirectory] = useState('')
 
   const { data: reposData, isLoading } = useQuery({
     queryKey: ['repositories', search],
@@ -31,8 +32,8 @@ export default function ImportRepositoryPage() {
   })
 
   const importMutation = useMutation({
-    mutationFn: ({ owner, repo, branch, config }: any) =>
-      api.importRepository(owner, repo, branch, config),
+    mutationFn: ({ owner, repo, branch, rootDir, config }: any) =>
+      api.importRepository(owner, repo, branch, rootDir, config),
     onSuccess: (data) => {
       navigate(`/projects/${data.project.id}`)
     },
@@ -48,12 +49,13 @@ export default function ImportRepositoryPage() {
 
     try {
       const [owner, repoName] = repo.full_name.split('/')
-      const result = await api.analyzeRepository(owner, repoName, repo.default_branch)
+      const result = await api.analyzeRepository(owner, repoName, repo.default_branch, rootDirectory)
       setAnalysis(result)
 
       // Initialize custom config with detected values
       setCustomConfig({
         name: result.repository.name,
+        root_directory: result.root_directory || rootDirectory || '',
         build_command: result.build_config.build_command,
         install_command: result.build_config.install_command,
         output_directory: result.build_config.output_directory,
@@ -61,7 +63,7 @@ export default function ImportRepositoryPage() {
       })
     } catch (error) {
       console.error('Failed to analyze repository:', error)
-      alert('Failed to analyze repository. Please try again.')
+      alert('分析仓库失败，请重试。')
       setSelectedRepo(null)
     } finally {
       setAnalyzing(false)
@@ -76,6 +78,7 @@ export default function ImportRepositoryPage() {
       owner,
       repo,
       branch: selectedRepo.default_branch,
+      rootDir: customConfig?.root_directory || '',
       config: customConfig,
     })
   }
@@ -92,18 +95,33 @@ export default function ImportRepositoryPage() {
         {!selectedRepo ? (
           <>
             <div className="mb-8">
-              <h1 className="text-3xl font-bold mb-2">Import Repository</h1>
-              <p className="text-gray-600">Select a GitHub repository to import and deploy</p>
+              <h1 className="text-3xl font-bold mb-2">导入仓库</h1>
+              <p className="text-gray-600">选择一个 GitHub 仓库进行导入和部署</p>
             </div>
 
-            <div className="mb-6">
+            <div className="mb-6 space-y-3">
               <input
                 type="text"
-                placeholder="Search repositories..."
+                placeholder="搜索仓库..."
                 className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700">
+                  根目录（用于 Monorepo）
+                </label>
+                <input
+                  type="text"
+                  placeholder="例如: frontend（单项目仓库留空）"
+                  className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                  value={rootDirectory}
+                  onChange={(e) => setRootDirectory(e.target.value)}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  为 Monorepo 项目指定包含 package.json 的子目录
+                </p>
+              </div>
             </div>
 
             {isLoading ? (
@@ -126,12 +144,12 @@ export default function ImportRepositoryPage() {
                           <h3 className="text-xl font-bold">{repo.name}</h3>
                           {repo.private && (
                             <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">
-                              Private
+                              私有
                             </span>
                           )}
                           {repo.is_imported && (
                             <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">
-                              Already Imported
+                              已导入
                             </span>
                           )}
                         </div>
@@ -146,13 +164,13 @@ export default function ImportRepositoryPage() {
                               {repo.language}
                             </span>
                           )}
-                          <span>Branch: {repo.default_branch}</span>
-                          <span>Updated {new Date(repo.updated_at).toLocaleDateString()}</span>
+                          <span>分支: {repo.default_branch}</span>
+                          <span>更新于 {new Date(repo.updated_at).toLocaleDateString()}</span>
                         </div>
                       </div>
                       {!repo.is_imported && (
                         <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                          Select
+                          选择
                         </button>
                       )}
                     </div>
@@ -161,7 +179,7 @@ export default function ImportRepositoryPage() {
               </div>
             ) : (
               <div className="text-center py-16 bg-white rounded-lg shadow-md">
-                <p className="text-gray-600">No repositories found</p>
+                <p className="text-gray-600">未找到仓库</p>
               </div>
             )}
           </>
@@ -172,25 +190,25 @@ export default function ImportRepositoryPage() {
                 onClick={handleBack}
                 className="text-blue-600 hover:underline mb-4"
               >
-                ← Back to repositories
+                ← 返回仓库列表
               </button>
-              <h1 className="text-3xl font-bold mb-2">Configure Import</h1>
+              <h1 className="text-3xl font-bold mb-2">配置导入</h1>
               <p className="text-gray-600">{selectedRepo.full_name}</p>
             </div>
 
             {analyzing ? (
               <div className="text-center py-16 bg-white rounded-lg shadow-md">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Analyzing repository...</p>
+                <p className="text-gray-600">正在分析仓库...</p>
               </div>
             ) : analysis && customConfig ? (
               <div className="space-y-6">
                 {/* Detection Summary */}
                 <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h2 className="text-xl font-bold mb-4">Auto-Detection Results</h2>
+                  <h2 className="text-xl font-bold mb-4">自动检测结果</h2>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
-                      <label className="text-sm text-gray-600">Detected Framework</label>
+                      <label className="text-sm text-gray-600">检测到的框架</label>
                       <p className="font-semibold capitalize">
                         {analysis.build_config.framework}
                         {analysis.build_config.confidence && (
@@ -201,13 +219,13 @@ export default function ImportRepositoryPage() {
                               ? 'bg-yellow-100 text-yellow-800'
                               : 'bg-red-100 text-red-800'
                           }`}>
-                            {analysis.build_config.confidence} confidence
+                            {analysis.build_config.confidence === 'high' ? '高' : analysis.build_config.confidence === 'medium' ? '中' : '低'}置信度
                           </span>
                         )}
                       </p>
                     </div>
                     <div>
-                      <label className="text-sm text-gray-600">Package Manager</label>
+                      <label className="text-sm text-gray-600">包管理器</label>
                       <p className="font-semibold">{analysis.build_config.package_manager}</p>
                     </div>
                   </div>
@@ -220,14 +238,14 @@ export default function ImportRepositoryPage() {
 
                 {/* Configuration Form */}
                 <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h2 className="text-xl font-bold mb-4">Build Configuration</h2>
+                  <h2 className="text-xl font-bold mb-4">构建配置</h2>
                   <p className="text-sm text-gray-600 mb-4">
-                    Review and customize the auto-detected settings
+                    检查并自定义自动检测的设置
                   </p>
 
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Project Name</label>
+                      <label className="block text-sm font-medium mb-1">项目名称</label>
                       <input
                         type="text"
                         className="w-full border rounded-lg px-3 py-2"
@@ -239,7 +257,25 @@ export default function ImportRepositoryPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium mb-1">Build Command</label>
+                      <label className="block text-sm font-medium mb-1">
+                        根目录（Monorepo 支持）
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
+                        placeholder="例如: frontend（单项目仓库留空）"
+                        value={customConfig.root_directory || ''}
+                        onChange={(e) =>
+                          setCustomConfig({ ...customConfig, root_directory: e.target.value })
+                        }
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        包含 package.json 的子目录
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-1">构建命令</label>
                       <input
                         type="text"
                         className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
@@ -251,7 +287,7 @@ export default function ImportRepositoryPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium mb-1">Install Command</label>
+                      <label className="block text-sm font-medium mb-1">安装命令</label>
                       <input
                         type="text"
                         className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
@@ -264,7 +300,7 @@ export default function ImportRepositoryPage() {
 
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium mb-1">Output Directory</label>
+                        <label className="block text-sm font-medium mb-1">输出目录</label>
                         <input
                           type="text"
                           className="w-full border rounded-lg px-3 py-2 font-mono text-sm"
@@ -276,7 +312,7 @@ export default function ImportRepositoryPage() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium mb-1">Node Version</label>
+                        <label className="block text-sm font-medium mb-1">Node 版本</label>
                         <select
                           className="w-full border rounded-lg px-3 py-2"
                           value={customConfig.node_version}
@@ -296,30 +332,30 @@ export default function ImportRepositoryPage() {
                 {/* Repository Structure Info */}
                 {analysis.repo_structure && (
                   <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h2 className="text-xl font-bold mb-4">Repository Details</h2>
+                    <h2 className="text-xl font-bold mb-4">仓库详情</h2>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
                         <span className="text-gray-600">TypeScript:</span>
                         <span className="ml-2 font-semibold">
-                          {analysis.repo_structure.has_typescript ? '✓ Yes' : '✗ No'}
+                          {analysis.repo_structure.has_typescript ? '✓ 是' : '✗ 否'}
                         </span>
                       </div>
                       <div>
-                        <span className="text-gray-600">Tests:</span>
+                        <span className="text-gray-600">测试:</span>
                         <span className="ml-2 font-semibold">
-                          {analysis.repo_structure.has_tests ? '✓ Yes' : '✗ No'}
+                          {analysis.repo_structure.has_tests ? '✓ 是' : '✗ 否'}
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-600">Docker:</span>
                         <span className="ml-2 font-semibold">
-                          {analysis.repo_structure.has_docker ? '✓ Yes' : '✗ No'}
+                          {analysis.repo_structure.has_docker ? '✓ 是' : '✗ 否'}
                         </span>
                       </div>
                       <div>
-                        <span className="text-gray-600">Lock File:</span>
+                        <span className="text-gray-600">锁文件:</span>
                         <span className="ml-2 font-semibold">
-                          {analysis.repo_structure.lock_file || 'None'}
+                          {analysis.repo_structure.lock_file || '无'}
                         </span>
                       </div>
                     </div>
@@ -333,20 +369,20 @@ export default function ImportRepositoryPage() {
                     className="px-6 py-3 border rounded-lg hover:bg-gray-50"
                     disabled={importMutation.isPending}
                   >
-                    Cancel
+                    取消
                   </button>
                   <button
                     onClick={handleImport}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                     disabled={importMutation.isPending}
                   >
-                    {importMutation.isPending ? 'Importing...' : 'Import Repository'}
+                    {importMutation.isPending ? '正在导入...' : '导入仓库'}
                   </button>
                 </div>
 
                 {importMutation.isError && (
                   <div className="bg-red-50 text-red-800 p-3 rounded-lg text-sm">
-                    Failed to import repository. Please try again.
+                    导入仓库失败，请重试。
                   </div>
                 )}
               </div>

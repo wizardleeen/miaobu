@@ -28,13 +28,13 @@ export default function Layout({ children }: LayoutProps) {
                   to="/dashboard"
                   className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md"
                 >
-                  Dashboard
+                  控制台
                 </Link>
                 <Link
                   to="/projects"
                   className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md"
                 >
-                  Projects
+                  项目
                 </Link>
               </div>
             </div>
@@ -54,7 +54,7 @@ export default function Layout({ children }: LayoutProps) {
                 onClick={handleLogout}
                 className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md"
               >
-                Logout
+                退出登录
               </button>
             </div>
           </div>

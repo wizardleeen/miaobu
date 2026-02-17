@@ -17,21 +17,21 @@ export default function ProjectsPage() {
     <Layout>
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Projects</h1>
-          <p className="text-gray-600">Manage your deployed projects</p>
+          <h1 className="text-3xl font-bold mb-2">项目</h1>
+          <p className="text-gray-600">管理您的部署项目</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setIsModalOpen(true)}
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition"
           >
-            Manual Import
+            手动导入
           </button>
           <button
             onClick={() => navigate('/projects/import')}
             className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition"
           >
-            + Import from GitHub
+            + 从 GitHub 导入
           </button>
         </div>
       </div>
@@ -55,7 +55,7 @@ export default function ProjectsPage() {
                 <span className="truncate">{project.default_domain}</span>
               </div>
               <div className="mt-4 pt-4 border-t text-sm text-gray-500">
-                Updated {new Date(project.updated_at).toLocaleDateString()}
+                更新于 {new Date(project.updated_at).toLocaleDateString('zh-CN')}
               </div>
             </Link>
           ))}
@@ -63,13 +63,13 @@ export default function ProjectsPage() {
       ) : (
         <div className="text-center py-16 bg-white rounded-lg shadow-md">
           <div className="text-6xl mb-4">📦</div>
-          <h2 className="text-2xl font-bold mb-2">No projects yet</h2>
-          <p className="text-gray-600 mb-6">Import your first project from GitHub to get started</p>
+          <h2 className="text-2xl font-bold mb-2">暂无项目</h2>
+          <p className="text-gray-600 mb-6">从 GitHub 导入您的第一个项目开始使用</p>
           <button
             onClick={() => navigate('/projects/import')}
             className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition"
           >
-            Import from GitHub
+            从 GitHub 导入
           </button>
         </div>
       )}
