@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
+import { useTheme } from './hooks/useTheme'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -10,6 +11,7 @@ import ImportRepositoryPage from './pages/ImportRepositoryPage'
 import CallbackPage from './pages/CallbackPage'
 
 function App() {
+  useTheme()
   const { isAuthenticated } = useAuthStore()
 
   return (

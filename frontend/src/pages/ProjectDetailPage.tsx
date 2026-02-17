@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import Layout from '../components/Layout'
 import DeploymentCard from '../components/DeploymentCard'
+import { Rocket, Settings, Check, ExternalLink } from 'lucide-react'
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -15,7 +16,7 @@ export default function ProjectDetailPage() {
     queryKey: ['project', projectId],
     queryFn: () => api.getProject(Number(projectId)),
     enabled: !!projectId,
-    refetchInterval: 5000, // 每5秒刷新一次以更新部署状态
+    refetchInterval: 5000,
   })
 
   const deployMutation = useMutation({
@@ -54,7 +55,7 @@ export default function ProjectDetailPage() {
     return (
       <Layout>
         <div className="text-center py-16">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-10 w-10 border-2 border-accent border-t-transparent mx-auto"></div>
         </div>
       </Layout>
     )
@@ -64,13 +65,12 @@ export default function ProjectDetailPage() {
     return (
       <Layout>
         <div className="text-center py-16">
-          <h2 className="text-2xl font-bold mb-2">项目不存在</h2>
+          <h2 className="text-xl font-semibold text-[--text-primary] mb-2">项目不存在</h2>
         </div>
       </Layout>
     )
   }
 
-  // 检查是否有正在进行的部署
   const hasActiveDeployment = project.deployments?.some((d: any) =>
     ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(d.status)
   )
@@ -79,130 +79,133 @@ export default function ProjectDetailPage() {
     <Layout>
       <div className="flex justify-between items-start mb-8">
         <div>
-          <h1 className="text-3xl font-bold mb-2">{project.name}</h1>
-          <p className="text-gray-600">{project.github_repo_name}</p>
+          <h1 className="text-2xl font-bold text-[--text-primary] mb-1">{project.name}</h1>
+          <p className="text-sm text-[--text-secondary]">{project.github_repo_name}</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={handleDeploy}
             disabled={isDeploying || hasActiveDeployment}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary flex items-center gap-2 text-sm"
           >
-            {isDeploying ? '部署中...' : hasActiveDeployment ? '构建中' : '🚀 部署'}
+            <Rocket size={16} />
+            {isDeploying ? '部署中...' : hasActiveDeployment ? '构建中' : '部署'}
           </button>
           <button
             onClick={() => navigate(`/projects/${projectId}/settings`)}
-            className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+            className="btn-secondary flex items-center gap-2 text-sm"
           >
-            ⚙️ 设置
+            <Settings size={16} />
+            设置
           </button>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold mb-4">
+      <div className="grid md:grid-cols-2 gap-4 mb-8">
+        <div className="card p-5">
+          <h2 className="text-sm font-semibold text-[--text-primary] mb-4">
             {project.project_type === 'python' ? '部署配置' : '构建配置'}
           </h2>
           <div className="space-y-3">
             {project.project_type === 'python' ? (
               <>
                 <div>
-                  <label className="text-sm text-gray-600">项目类型</label>
-                  <p className="text-sm">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                  <label className="text-xs text-[--text-tertiary]">项目类型</label>
+                  <p className="text-sm mt-0.5">
+                    <span className="badge-info">
                       Python 后端
                       {project.python_framework && ` (${project.python_framework})`}
                     </span>
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">启动命令</label>
-                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.start_command || '—'}</p>
+                  <label className="text-xs text-[--text-tertiary]">启动命令</label>
+                  <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.start_command || '—'}</p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Python 版本</label>
-                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.python_version || '3.11'}</p>
+                  <label className="text-xs text-[--text-tertiary]">Python 版本</label>
+                  <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.python_version || '3.11'}</p>
                 </div>
                 {project.fc_endpoint_url && (
                   <div>
-                    <label className="text-sm text-gray-600">服务端点</label>
-                    <p className="font-mono text-xs bg-gray-100 p-2 rounded truncate">{project.fc_endpoint_url}</p>
+                    <label className="text-xs text-[--text-tertiary]">服务端点</label>
+                    <p className="font-mono text-xs bg-[--bg-tertiary] p-2 rounded-lg mt-0.5 truncate">{project.fc_endpoint_url}</p>
                   </div>
                 )}
               </>
             ) : (
               <>
                 <div>
-                  <label className="text-sm text-gray-600">构建命令</label>
-                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.build_command}</p>
+                  <label className="text-xs text-[--text-tertiary]">构建命令</label>
+                  <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.build_command}</p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">安装命令</label>
-                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.install_command}</p>
+                  <label className="text-xs text-[--text-tertiary]">安装命令</label>
+                  <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.install_command}</p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">输出目录</label>
-                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.output_directory}</p>
+                  <label className="text-xs text-[--text-tertiary]">输出目录</label>
+                  <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.output_directory}</p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Node 版本</label>
-                  <p className="font-mono text-sm bg-gray-100 p-2 rounded">{project.node_version}</p>
+                  <label className="text-xs text-[--text-tertiary]">Node 版本</label>
+                  <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.node_version}</p>
                 </div>
               </>
             )}
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold mb-4">部署信息</h2>
+        <div className="card p-5">
+          <h2 className="text-sm font-semibold text-[--text-primary] mb-4">部署信息</h2>
           <div className="space-y-3">
             <div>
-              <label className="text-sm text-gray-600">默认域名</label>
-              <p className="text-sm">
+              <label className="text-xs text-[--text-tertiary]">默认域名</label>
+              <p className="text-sm mt-0.5">
                 <a
                   href={`https://${project.default_domain}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline"
+                  className="text-accent hover:text-[--accent-hover] inline-flex items-center gap-1"
                 >
                   {project.default_domain}
+                  <ExternalLink size={12} />
                 </a>
               </p>
             </div>
             <div>
-              <label className="text-sm text-gray-600">默认分支</label>
-              <p className="text-sm">{project.default_branch}</p>
+              <label className="text-xs text-[--text-tertiary]">默认分支</label>
+              <p className="text-sm text-[--text-primary] mt-0.5">{project.default_branch}</p>
             </div>
             <div>
-              <label className="text-sm text-gray-600">代码仓库</label>
-              <p className="text-sm">
+              <label className="text-xs text-[--text-tertiary]">代码仓库</label>
+              <p className="text-sm mt-0.5">
                 <a
                   href={project.github_repo_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline"
+                  className="text-accent hover:text-[--accent-hover] inline-flex items-center gap-1"
                 >
                   {project.github_repo_name}
+                  <ExternalLink size={12} />
                 </a>
               </p>
             </div>
             <div>
-              <label className="text-sm text-gray-600">自动部署</label>
-              <div className="flex items-center gap-2">
+              <label className="text-xs text-[--text-tertiary]">自动部署</label>
+              <div className="flex items-center gap-2 mt-0.5">
                 {project.webhook_id ? (
                   <>
-                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      ✓ 已启用
+                    <span className="badge-success">
+                      <Check size={12} />
+                      已启用
                     </span>
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-[--text-tertiary]">
                       推送到 {project.default_branch} 时自动部署
                     </span>
                   </>
                 ) : (
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                    仅手动
-                  </span>
+                  <span className="badge-neutral">仅手动</span>
                 )}
               </div>
             </div>
@@ -210,10 +213,10 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-2xl font-bold mb-4">部署记录</h2>
+      <div className="card p-6">
+        <h2 className="text-lg font-semibold text-[--text-primary] mb-4">部署记录</h2>
         {project.deployments && project.deployments.length > 0 ? (
-          <div className="space-y-4">
+          <div className="divide-y divide-[--border-primary]">
             {project.deployments.map((deployment: any) => (
               <DeploymentCard
                 key={deployment.id}
@@ -223,12 +226,12 @@ export default function ProjectDetailPage() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-8 text-gray-600">
-            <p className="mb-4">暂无部署记录</p>
+          <div className="text-center py-8">
+            <p className="text-[--text-secondary] mb-4">暂无部署记录</p>
             <button
               onClick={handleDeploy}
               disabled={isDeploying}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="btn-primary text-sm"
             >
               立即部署
             </button>

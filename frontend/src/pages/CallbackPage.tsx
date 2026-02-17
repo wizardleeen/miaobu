@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../services/api'
+import { Loader2, XCircle } from 'lucide-react'
 
 export default function CallbackPage() {
   const [searchParams] = useSearchParams()
@@ -30,10 +31,7 @@ export default function CallbackPage() {
 
   const handleCallback = async (token: string) => {
     try {
-      // Temporarily store token for API call
       localStorage.setItem('token', token)
-
-      // Fetch user info using the token
       const user = await api.getCurrentUser()
       setAuth(token, user)
       navigate('/dashboard')
@@ -47,23 +45,23 @@ export default function CallbackPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center">
-          <div className="text-red-500 text-5xl mb-4">✕</div>
-          <h1 className="text-2xl font-bold mb-2">登录失败</h1>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <p className="text-sm text-gray-500">正在跳转到登录页...</p>
+      <div className="min-h-screen bg-[--bg-secondary] flex items-center justify-center px-4">
+        <div className="card p-8 max-w-md w-full text-center animate-slide-in">
+          <XCircle size={48} className="text-red-500 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-[--text-primary] mb-2">登录失败</h1>
+          <p className="text-[--text-secondary] mb-4">{error}</p>
+          <p className="text-sm text-[--text-tertiary]">正在跳转到登录页...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-      <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <h1 className="text-2xl font-bold mb-2">正在登录...</h1>
-        <p className="text-gray-600">请稍候</p>
+    <div className="min-h-screen bg-[--bg-secondary] flex items-center justify-center px-4">
+      <div className="card p-8 max-w-md w-full text-center animate-slide-in">
+        <Loader2 size={40} className="text-accent mx-auto mb-4 animate-spin" />
+        <h1 className="text-2xl font-bold text-[--text-primary] mb-2">正在登录...</h1>
+        <p className="text-[--text-secondary]">请稍候</p>
       </div>
     </div>
   )

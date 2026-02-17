@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
+import { ExternalLink, ChevronDown, ChevronUp, XCircle } from 'lucide-react'
 
 interface Deployment {
   id: number
@@ -33,22 +34,34 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
     refetchInterval: ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(deployment.status) ? 2000 : false,
   })
 
-  const getStatusColor = (status: string) => {
+  const getStatusBadge = (status: string) => {
     switch (status) {
       case 'deployed':
-        return 'bg-green-100 text-green-800'
+        return 'badge-success'
       case 'failed':
       case 'cancelled':
-        return 'bg-red-100 text-red-800'
+        return 'badge-error'
+      case 'purged':
+        return 'badge-neutral'
       case 'queued':
       case 'cloning':
       case 'building':
       case 'uploading':
       case 'deploying':
-        return 'bg-yellow-100 text-yellow-800'
+        return 'badge-warning'
       default:
-        return 'bg-gray-100 text-gray-800'
+        return 'badge-neutral'
     }
+  }
+
+  const getStatusDot = (status: string) => {
+    const isActive = ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(status)
+    const color = status === 'deployed' ? 'bg-emerald-500' :
+      ['failed', 'cancelled'].includes(status) ? 'bg-red-500' :
+      isActive ? 'bg-amber-500' : 'bg-gray-400'
+    return (
+      <span className={`w-2 h-2 rounded-full ${color} ${isActive ? 'animate-pulse-dot' : ''}`} />
+    )
   }
 
   const getStatusLabel = (status: string) => {
@@ -61,6 +74,7 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
       deployed: '已部署',
       failed: '失败',
       cancelled: '已取消',
+      purged: '已清理',
     }
     return labels[status] || status
   }
@@ -69,49 +83,54 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
   const isDeployed = deployment.status === 'deployed' && deployment.deployment_url
 
   return (
-    <div className="border rounded-lg p-4">
-      <div className="flex justify-between items-start mb-3">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`px-3 py-1 rounded-full text-sm font-semibold ${getStatusColor(deployment.status)}`}>
+    <div className="py-4 first:pt-0 last:pb-0">
+      <div className="flex justify-between items-start">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={getStatusBadge(deployment.status)}>
+              {getStatusDot(deployment.status)}
               {getStatusLabel(deployment.status)}
             </span>
             {deployment.build_time_seconds && (
-              <span className="text-sm text-gray-500">
+              <span className="text-xs text-[--text-tertiary]">
                 {deployment.build_time_seconds}s
               </span>
             )}
           </div>
-          <p className="font-semibold">{deployment.commit_message || '无提交信息'}</p>
-          <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
-            <span>#{deployment.commit_sha.substring(0, 7)}</span>
-            <span>•</span>
+          <p className="text-sm font-medium text-[--text-primary] truncate">
+            {deployment.commit_message || '无提交信息'}
+          </p>
+          <div className="flex items-center gap-2 text-xs text-[--text-tertiary] mt-1">
+            <span className="font-mono">#{deployment.commit_sha.substring(0, 7)}</span>
+            <span className="text-[--border-secondary]">/</span>
             <span>{deployment.branch}</span>
-            <span>•</span>
+            <span className="text-[--border-secondary]">/</span>
             <span>{deployment.commit_author}</span>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 ml-4 shrink-0">
           {isDeployed && (
             <a
               href={deployment.deployment_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+              className="btn-primary text-xs px-2.5 py-1.5 flex items-center gap-1"
             >
+              <ExternalLink size={12} />
               预览
             </a>
           )}
           <button
             onClick={() => setShowLogs(!showLogs)}
-            className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
+            className="btn-secondary text-xs px-2.5 py-1.5 flex items-center gap-1"
           >
-            {showLogs ? '隐藏日志' : '查看日志'}
+            {showLogs ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            {showLogs ? '隐藏日志' : '日志'}
           </button>
           {canCancel && onCancel && (
             <button
               onClick={() => onCancel(deployment.id)}
-              className="px-3 py-1 text-sm border border-red-300 text-red-700 rounded hover:bg-red-50"
+              className="btn-secondary text-xs px-2.5 py-1.5 text-red-600 dark:text-red-400 border-red-200 dark:border-red-500/30 hover:bg-red-50 dark:hover:bg-red-500/10"
             >
               取消
             </button>
@@ -120,21 +139,22 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
       </div>
 
       {isDeployed && (
-        <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+        <div className="mt-3 p-2.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-lg">
           <div className="text-sm space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-green-700 font-semibold">部署地址:</span>
+              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">部署地址:</span>
               <a
                 href={deployment.deployment_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:underline truncate"
+                className="text-accent hover:text-[--accent-hover] text-xs truncate inline-flex items-center gap-1"
               >
                 {deployment.deployment_url}
+                <ExternalLink size={10} />
               </a>
             </div>
             {deployment.cdn_url && deployment.cdn_url !== deployment.deployment_url && (
-              <div className="flex items-center gap-2 text-xs text-gray-600">
+              <div className="flex items-center gap-2 text-xs text-[--text-tertiary]">
                 <span>CDN:</span>
                 <span className="truncate">{deployment.cdn_url}</span>
               </div>
@@ -143,7 +163,7 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
         </div>
       )}
 
-      <div className="text-sm text-gray-500">
+      <div className="text-xs text-[--text-tertiary] mt-2">
         {deployment.deployed_at ? (
           <span>部署于 {new Date(deployment.deployed_at).toLocaleString('zh-CN')}</span>
         ) : (
@@ -152,17 +172,18 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
       </div>
 
       {deployment.error_message && (
-        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
-          <strong>错误:</strong> {deployment.error_message}
+        <div className="mt-3 p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-lg text-sm flex items-start gap-2">
+          <XCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
+          <span className="text-red-700 dark:text-red-400">{deployment.error_message}</span>
         </div>
       )}
 
       {showLogs && logsData && (
-        <div className="mt-3 bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-sm max-h-96 overflow-y-auto">
+        <div className="mt-3 bg-[#0d1117] text-gray-300 rounded-lg p-4 font-mono text-xs max-h-96 overflow-y-auto border border-[#30363d]">
           {logsData.logs ? (
             <pre className="whitespace-pre-wrap">{logsData.logs}</pre>
           ) : (
-            <p className="text-gray-400">暂无日志...</p>
+            <p className="text-gray-500">暂无日志...</p>
           )}
         </div>
       )}
