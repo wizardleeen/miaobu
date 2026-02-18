@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     # Environment variable encryption
     env_encryption_key: str = ""  # Fernet key for encrypting env var values
 
+    # Build callback (GitHub Actions → Miaobu API)
+    miaobu_callback_secret: str = ""  # HMAC-SHA256 secret shared with GHA
+
+    # GitHub PAT for dispatching repository_dispatch events
+    github_pat: str = ""
+
     # HTTP Proxy
     http_proxy: str = ""
 

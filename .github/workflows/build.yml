@@ -1,0 +1,268 @@
+name: Miaobu Build
+
+on:
+  repository_dispatch:
+    types: [miaobu-build]
+
+env:
+  MIAOBU_API_URL: ${{ secrets.MIAOBU_API_URL }}
+  MIAOBU_CALLBACK_SECRET: ${{ secrets.MIAOBU_CALLBACK_SECRET }}
+  ALIYUN_AK_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+  ALIYUN_AK_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+
+jobs:
+  build-static:
+    if: github.event.client_payload.project_type == 'static'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout miaobu (for scripts)
+        uses: actions/checkout@v4
+
+      - name: Fetch clone token
+        id: clone
+        run: |
+          URL_PATH="/api/v1/internal/deployments/${{ github.event.client_payload.deployment_id }}/clone-token"
+          SIG="sha256=$(echo -n "$URL_PATH" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
+          RESPONSE=$(curl -sf --max-time 30 \
+            "${MIAOBU_API_URL}${URL_PATH}" \
+            -H "X-Miaobu-Signature: ${SIG}")
+          TOKEN=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          echo "::add-mask::${TOKEN}"
+          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout user repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.client_payload.repo_name }}
+          ref: ${{ github.event.client_payload.commit_sha }}
+          token: ${{ steps.clone.outputs.token }}
+          path: user-repo
+
+      - name: Notify building
+        run: |
+          chmod +x .github/scripts/callback.sh
+          BODY='{"deployment_id":${{ github.event.client_payload.deployment_id }},"status":"building","build_logs":"GitHub Actions build started\nRunner: ubuntu-latest\nRepo: ${{ github.event.client_payload.repo_name }}\nBranch: ${{ github.event.client_payload.branch }}\nCommit: ${{ github.event.client_payload.commit_sha }}\n"}'
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Fetch env vars
+        run: |
+          URL_PATH="/api/v1/internal/deployments/${{ github.event.client_payload.deployment_id }}/env-vars"
+          SIG="sha256=$(echo -n "$URL_PATH" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
+          RESPONSE=$(curl -sf --max-time 30 \
+            "${MIAOBU_API_URL}${URL_PATH}" \
+            -H "X-Miaobu-Signature: ${SIG}")
+
+          echo "$RESPONSE" | python3 -c "
+          import json, sys, os
+          data = json.load(sys.stdin)
+          env_file = os.environ['GITHUB_ENV']
+          with open(env_file, 'a') as f:
+              for k, v in data.get('env_vars', {}).items():
+                  print(f'::add-mask::{v}')
+                  f.write(f'{k}={v}\n')
+          print(f'Loaded {len(data.get(\"env_vars\", {}))} env var(s)')
+          "
+
+      - name: Detect package manager
+        id: pm
+        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        run: |
+          if [ -f "pnpm-lock.yaml" ]; then
+            echo "manager=pnpm" >> "$GITHUB_OUTPUT"
+          elif [ -f "yarn.lock" ]; then
+            echo "manager=yarn" >> "$GITHUB_OUTPUT"
+          else
+            echo "manager=npm" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ github.event.client_payload.node_version }}
+
+      - name: Setup pnpm
+        if: steps.pm.outputs.manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install dependencies
+        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        run: |
+          echo "=== Installing dependencies ==="
+          ${{ github.event.client_payload.install_command }} 2>&1 | tail -20
+          echo "=== Install complete ==="
+
+      - name: Build
+        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        run: |
+          echo "=== Running build ==="
+          START=$(date +%s)
+          ${{ github.event.client_payload.build_command }} 2>&1
+          END=$(date +%s)
+          echo "build_seconds=$((END - START))" >> "$GITHUB_ENV"
+          echo "=== Build complete ($((END - START))s) ==="
+
+      - name: Verify output
+        id: verify
+        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        run: |
+          OUTPUT_DIR="${{ github.event.client_payload.output_directory }}"
+          if [ ! -d "$OUTPUT_DIR" ]; then
+            echo "ERROR: Output directory '$OUTPUT_DIR' not found"
+            ls -la
+            exit 1
+          fi
+          FILE_COUNT=$(find "$OUTPUT_DIR" -type f | wc -l)
+          echo "Output directory: $OUTPUT_DIR ($FILE_COUNT files)"
+          echo "output_path=$(pwd)/$OUTPUT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Notify uploading
+        run: |
+          BODY='{"deployment_id":${{ github.event.client_payload.deployment_id }},"status":"uploading","build_logs":"Build completed in ${build_seconds}s\nUploading to OSS...\n"}'
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Install oss2
+        run: pip install oss2
+
+      - name: Upload to OSS
+        run: |
+          python .github/scripts/upload_to_oss.py static \
+            "${{ steps.verify.outputs.output_path }}" \
+            "${{ github.event.client_payload.project_slug }}" \
+            "${{ github.event.client_payload.deployment_id }}"
+
+      - name: Notify uploaded
+        if: success()
+        run: |
+          BODY='{"deployment_id":${{ github.event.client_payload.deployment_id }},"status":"uploaded","build_time_seconds":'${build_seconds}',"build_logs":"OSS upload complete\n"}'
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          chmod +x .github/scripts/callback.sh 2>/dev/null || true
+          BODY=$(python3 -c "
+          import json
+          print(json.dumps({
+            'deployment_id': ${{ github.event.client_payload.deployment_id }},
+            'status': 'failed',
+            'error_message': 'GitHub Actions build failed — check workflow logs',
+            'build_logs': 'Build failed. See GitHub Actions run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n'
+          }))
+          ")
+          .github/scripts/callback.sh "$BODY"
+
+  build-python:
+    if: github.event.client_payload.project_type == 'python'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout miaobu (for scripts)
+        uses: actions/checkout@v4
+
+      - name: Fetch clone token
+        id: clone
+        run: |
+          URL_PATH="/api/v1/internal/deployments/${{ github.event.client_payload.deployment_id }}/clone-token"
+          SIG="sha256=$(echo -n "$URL_PATH" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
+          RESPONSE=$(curl -sf --max-time 30 \
+            "${MIAOBU_API_URL}${URL_PATH}" \
+            -H "X-Miaobu-Signature: ${SIG}")
+          TOKEN=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          echo "::add-mask::${TOKEN}"
+          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout user repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.client_payload.repo_name }}
+          ref: ${{ github.event.client_payload.commit_sha }}
+          token: ${{ steps.clone.outputs.token }}
+          path: user-repo
+
+      - name: Notify building
+        run: |
+          chmod +x .github/scripts/callback.sh
+          BODY='{"deployment_id":${{ github.event.client_payload.deployment_id }},"status":"building","build_logs":"GitHub Actions Python build started\nRunner: ubuntu-latest\nRepo: ${{ github.event.client_payload.repo_name }}\nBranch: ${{ github.event.client_payload.branch }}\nCommit: ${{ github.event.client_payload.commit_sha }}\n"}'
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        run: |
+          echo "=== Installing Python dependencies ==="
+          START=$(date +%s)
+          if [ -f "requirements.txt" ]; then
+            pip install --no-cache-dir -r requirements.txt --target python_deps/
+          elif [ -f "pyproject.toml" ]; then
+            pip install --no-cache-dir . --target python_deps/
+          else
+            echo "No requirements.txt or pyproject.toml found, skipping"
+          fi
+          END=$(date +%s)
+          echo "build_seconds=$((END - START))" >> "$GITHUB_ENV"
+          echo "=== Install complete ($((END - START))s) ==="
+
+      - name: Create code package
+        id: package
+        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        run: |
+          COMMIT_TAG=$(echo "${{ github.event.client_payload.commit_sha }}" | cut -c1-12)
+          ZIP_NAME="${{ github.event.client_payload.project_slug }}-${COMMIT_TAG}.zip"
+          zip -r "/tmp/${ZIP_NAME}" . -x ".git/*" "__pycache__/*" "*.pyc"
+          SIZE=$(du -h "/tmp/${ZIP_NAME}" | cut -f1)
+          echo "Code package: ${ZIP_NAME} (${SIZE})"
+          echo "zip_path=/tmp/${ZIP_NAME}" >> "$GITHUB_OUTPUT"
+          echo "commit_tag=${COMMIT_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify uploading
+        run: |
+          BODY='{"deployment_id":${{ github.event.client_payload.deployment_id }},"status":"uploading","build_logs":"Dependencies installed in ${build_seconds}s\nUploading code package to OSS...\n"}'
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Install oss2
+        run: pip install oss2
+
+      - name: Upload to OSS
+        run: |
+          python .github/scripts/upload_to_oss.py python \
+            "${{ steps.package.outputs.zip_path }}" \
+            "${{ github.event.client_payload.project_slug }}" \
+            "${{ steps.package.outputs.commit_tag }}"
+
+      - name: Notify uploaded
+        if: success()
+        run: |
+          OSS_KEY="fc-packages/${{ github.event.client_payload.project_slug }}/${{ steps.package.outputs.commit_tag }}.zip"
+          BODY=$(python3 -c "
+          import json
+          print(json.dumps({
+            'deployment_id': ${{ github.event.client_payload.deployment_id }},
+            'status': 'uploaded',
+            'build_time_seconds': ${build_seconds},
+            'build_logs': 'OSS upload complete\n',
+            'oss_key': '${OSS_KEY}'
+          }))
+          ")
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          chmod +x .github/scripts/callback.sh 2>/dev/null || true
+          BODY=$(python3 -c "
+          import json
+          print(json.dumps({
+            'deployment_id': ${{ github.event.client_payload.deployment_id }},
+            'status': 'failed',
+            'error_message': 'GitHub Actions Python build failed — check workflow logs',
+            'build_logs': 'Build failed. See GitHub Actions run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n'
+          }))
+          ")
+          .github/scripts/callback.sh "$BODY"

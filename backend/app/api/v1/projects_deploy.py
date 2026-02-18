@@ -1,7 +1,5 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
-from celery import Celery
-import os
 import httpx
 
 from ...database import get_db
@@ -11,10 +9,6 @@ from ...core.exceptions import NotFoundException, ForbiddenException
 from ...services.github import GitHubService
 
 router = APIRouter(tags=["Projects"])
-
-# Initialize Celery client
-REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
-celery_app = Celery('miaobu-worker', broker=REDIS_URL, backend=REDIS_URL)
 
 
 @router.post("/projects/{project_id}/deploy", status_code=status.HTTP_201_CREATED)
@@ -87,23 +81,16 @@ async def trigger_deployment(
     db.commit()
     db.refresh(deployment)
 
-    # Queue Celery task based on project type
+    # Dispatch build via GitHub Actions
     try:
-        if project.project_type == "python":
-            task_name = 'tasks.build_python.build_and_deploy_python'
-        else:
-            task_name = 'tasks.build.build_and_deploy'
+        from ...services.github_actions import trigger_build
 
-        task = celery_app.send_task(
-            task_name,
-            args=[deployment.id],
-            queue='builds'
-        )
-        deployment.celery_task_id = task.id
-        db.commit()
+        result = await trigger_build(project, deployment)
+        if not result["success"]:
+            raise Exception(result["error"])
     except Exception as e:
         deployment.status = DeploymentStatus.FAILED
-        deployment.error_message = f"Failed to queue build: {str(e)}"
+        deployment.error_message = f"Failed to dispatch build: {str(e)}"
         db.commit()
         raise
 
@@ -113,7 +100,6 @@ async def trigger_deployment(
         "commit_sha": commit_sha,
         "commit_message": commit_message,
         "branch": deploy_branch,
-        "celery_task_id": deployment.celery_task_id
     }
 
 
@@ -136,11 +122,7 @@ async def cancel_deployment(
     if deployment.status in [DeploymentStatus.DEPLOYED, DeploymentStatus.FAILED, DeploymentStatus.CANCELLED]:
         raise Exception(f"Cannot cancel deployment with status {deployment.status}")
 
-    # Revoke Celery task
-    if deployment.celery_task_id:
-        celery_app.control.revoke(deployment.celery_task_id, terminate=True)
-
-    # Update status
+    # Update status (GHA workflows will check deployment status and stop if cancelled)
     deployment.status = DeploymentStatus.CANCELLED
     db.commit()
 
