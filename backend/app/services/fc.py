@@ -16,7 +16,7 @@ from alibabacloud_tea_openapi import models as open_api_models
 from ..config import get_settings
 
 # Python 3.10 layer ARN (pre-built standalone Python binary)
-PYTHON_LAYER_ARN = 'acs:fc:cn-hangzhou:1765215622020297:layers/python310/versions/1'
+PYTHON_LAYER_ARN = 'acs:fc:cn-qingdao:1765215622020297:layers/python310/versions/1'
 
 
 class FCService:
@@ -31,14 +31,15 @@ class FCService:
         """Initialize FC 3.0 client with credentials from settings."""
         settings = get_settings()
         self.settings = settings
+        fc_region = settings.aliyun_fc_region
         config = open_api_models.Config(
             access_key_id=settings.aliyun_access_key_id,
             access_key_secret=settings.aliyun_access_key_secret,
-            endpoint=f'{settings.aliyun_account_id}.{settings.aliyun_region}.fc.aliyuncs.com',
+            endpoint=f'{settings.aliyun_account_id}.{fc_region}.fc.aliyuncs.com',
         )
         self.client = FCClient(config)
         self.account_id = settings.aliyun_account_id
-        self.region = settings.aliyun_region
+        self.region = fc_region
 
     def create_or_update_function(
         self,

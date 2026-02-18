@@ -45,8 +45,10 @@ class Settings(BaseSettings):
     aliyun_esa_edge_kv_namespace_id: str = "961854465965670400"
     aliyun_esa_edge_kv_namespace: str = "miaobu"
 
-    # Function Compute Configuration
+    # Function Compute Configuration (cn-qingdao for co-location with server)
     aliyun_account_id: str = ""
+    aliyun_fc_region: str = "cn-qingdao"
+    aliyun_fc_oss_bucket: str = "miaobu-deployments-qingdao"
     aliyun_fc_service_name: str = "miaobu"
     aliyun_acr_registry: str = ""  # e.g., "registry.cn-hangzhou.aliyuncs.com"
     aliyun_acr_namespace: str = "miaobu"

@@ -92,8 +92,9 @@ def build_and_deploy_python(self, deployment_id: int):
             log("STEP 2: INSTALLING DEPENDENCIES")
             log("=" * 60)
 
-            # Use Python 3.10 by default since FC supports python3.10 runtime
-            python_version = project.python_version or "3.10"
+            # MUST match the FC layer's Python version (python310/versions/1)
+            # Ignore project.python_version — FC runtime is always 3.10
+            python_version = "3.10"
             has_requirements = (work_dir / "requirements.txt").exists()
             has_pyproject = (work_dir / "pyproject.toml").exists()
             has_pipfile = (work_dir / "Pipfile").exists()
@@ -189,7 +190,9 @@ def build_and_deploy_python(self, deployment_id: int):
             import oss2
 
             auth = oss2.Auth(settings.aliyun_access_key_id, settings.aliyun_access_key_secret)
-            bucket = oss2.Bucket(auth, settings.aliyun_oss_endpoint, settings.aliyun_oss_bucket)
+            # Use Qingdao OSS with internal endpoint for fast uploads (co-located with server)
+            fc_oss_bucket = settings.aliyun_fc_oss_bucket
+            bucket = oss2.Bucket(auth, 'oss-cn-qingdao-internal.aliyuncs.com', fc_oss_bucket)
 
             oss_key = f"fc-packages/{project.slug}/{commit_tag}.zip"
             bucket.put_object_from_file(oss_key, str(zip_path))
@@ -237,7 +240,7 @@ def build_and_deploy_python(self, deployment_id: int):
 
             fc_result = fc_service.create_or_update_function(
                 name=fc_function_name,
-                oss_bucket=settings.aliyun_oss_bucket,
+                oss_bucket=fc_oss_bucket,
                 oss_key=oss_key,
                 start_command=start_command,
                 python_version=python_version,
@@ -332,6 +335,24 @@ def build_and_deploy_python(self, deployment_id: int):
             deployment.build_time_seconds = build_seconds
             deployment.deployment_url = f"https://{project.slug}.{settings.cdn_base_domain}/"
             db.commit()
+
+            # Purge ESA cache for subdomain and custom domains
+            try:
+                from app.models import CustomDomain as CD
+                hostnames_to_purge = [f"{project.slug}.{settings.cdn_base_domain}"]
+                all_verified = db.query(CD).filter(
+                    CD.project_id == project.id,
+                    CD.is_verified == True,
+                ).all()
+                for cd in all_verified:
+                    hostnames_to_purge.append(cd.domain)
+                purge_result = esa_service.purge_host_cache(hostnames_to_purge)
+                if purge_result.get('success'):
+                    log(f"ESA cache purged for {', '.join(hostnames_to_purge)}")
+                else:
+                    log(f"Warning: ESA cache purge failed: {purge_result.get('error')}")
+            except Exception as e:
+                log(f"Warning: ESA cache purge failed: {e}")
 
             log(f"Build time: {build_seconds}s")
             log(f"Deployment URL: {deployment.deployment_url}")
