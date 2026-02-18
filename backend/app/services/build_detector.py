@@ -25,6 +25,36 @@ class BuildDetector:
         },
     }
 
+    # Node.js backend framework detection patterns
+    NODE_BACKEND_FRAMEWORK_PATTERNS = {
+        "express": {
+            "indicators": ["express"],
+            "start_command": "node index.js",
+            "framework": "express",
+        },
+        "fastify": {
+            "indicators": ["fastify"],
+            "start_command": "node index.js",
+            "framework": "fastify",
+        },
+        "nestjs": {
+            "indicators": ["@nestjs/core"],
+            "start_command": "node dist/main.js",
+            "framework": "nestjs",
+            "needs_build": True,
+        },
+        "koa": {
+            "indicators": ["koa"],
+            "start_command": "node index.js",
+            "framework": "koa",
+        },
+        "hapi": {
+            "indicators": ["@hapi/hapi"],
+            "start_command": "node index.js",
+            "framework": "hapi",
+        },
+    }
+
     # Framework detection patterns
     FRAMEWORK_PATTERNS = {
         "slidev": {
@@ -536,6 +566,66 @@ class BuildDetector:
             "start_command": start_command,
             "dependencies": list(deps),
             "confidence": "high" if detected_framework else "medium",
+        }
+
+    @staticmethod
+    def detect_from_node_backend(package_json_content: str) -> Optional[Dict[str, Any]]:
+        """
+        Detect Node.js backend framework from package.json content.
+
+        Returns config dict if a backend framework is detected, None otherwise.
+        """
+        try:
+            package_data = json.loads(package_json_content)
+        except json.JSONDecodeError:
+            return None
+
+        dependencies = package_data.get("dependencies", {})
+        dev_dependencies = package_data.get("devDependencies", {})
+        all_deps = {**dependencies, **dev_dependencies}
+        scripts = package_data.get("scripts", {})
+
+        # Check for Node.js backend frameworks
+        detected_framework = None
+        framework_config = None
+
+        for framework_name, config in BuildDetector.NODE_BACKEND_FRAMEWORK_PATTERNS.items():
+            for indicator in config["indicators"]:
+                if indicator in dependencies:  # Only check production deps
+                    detected_framework = framework_name
+                    framework_config = config
+                    break
+            if detected_framework:
+                break
+
+        if not detected_framework:
+            return None
+
+        # Determine start command: prefer scripts.start -> "npm start" over hardcoded
+        if scripts.get("start"):
+            start_command = "npm start"
+        else:
+            start_command = framework_config["start_command"]
+
+        # Determine build command
+        build_command = ""
+        needs_build = framework_config.get("needs_build", False)
+        has_typescript = "typescript" in all_deps
+        if (needs_build or has_typescript) and scripts.get("build"):
+            build_command = "npm run build"
+
+        # Detect install command and node version
+        install_command = BuildDetector._detect_install_command(package_data)
+        node_version = BuildDetector._detect_node_version(package_data)
+
+        return {
+            "project_type": "node",
+            "framework": detected_framework,
+            "start_command": start_command,
+            "install_command": install_command,
+            "build_command": build_command,
+            "node_version": node_version,
+            "confidence": "high",
         }
 
     @staticmethod

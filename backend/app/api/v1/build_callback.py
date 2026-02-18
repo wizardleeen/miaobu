@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from ...database import get_db
 from ...config import get_settings
 from ...models import Deployment, DeploymentStatus, EnvironmentVariable
-from ...services.deploy import deploy_static, deploy_python
+from ...services.deploy import deploy_static, deploy_python, deploy_node
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
 
@@ -137,6 +137,18 @@ async def build_callback(
                     detail="oss_key required for Python deployments",
                 )
             result = deploy_python(
+                deployment_id=deployment.id,
+                oss_key=payload.oss_key,
+                db=db,
+                log=log,
+            )
+        elif project.project_type == "node":
+            if not payload.oss_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail="oss_key required for Node.js deployments",
+                )
+            result = deploy_node(
                 deployment_id=deployment.id,
                 oss_key=payload.oss_key,
                 db=db,

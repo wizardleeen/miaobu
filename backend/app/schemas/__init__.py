@@ -10,6 +10,7 @@ from enum import Enum
 class ProjectType(str, Enum):
     STATIC = "static"
     PYTHON = "python"
+    NODE = "node"
 
 
 class DeploymentStatus(str, Enum):

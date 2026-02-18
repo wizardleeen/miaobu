@@ -352,3 +352,227 @@ jobs:
           ")
           chmod +x .github/scripts/callback.sh
           .github/scripts/callback.sh "$BODY"
+
+  build-node:
+    if: github.event.client_payload.project_type == 'node'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout miaobu (for scripts)
+        uses: actions/checkout@v4
+
+      - name: Parse build config
+        id: cfg
+        run: |
+          echo '${{ github.event.client_payload.build_config }}' | python3 -c "
+          import json, sys, os
+          cfg = json.load(sys.stdin)
+          out = os.environ['GITHUB_OUTPUT']
+          with open(out, 'a') as f:
+              for k, v in cfg.items():
+                  f.write(f'{k}={v}\n')
+          "
+
+      - name: Fetch clone token
+        id: clone
+        run: |
+          URL_PATH="/api/v1/internal/deployments/${{ github.event.client_payload.deployment_id }}/clone-token"
+          SIG="sha256=$(echo -n "$URL_PATH" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
+
+          for attempt in 1 2 3 4 5; do
+            HTTP_CODE=$(curl -s -o /tmp/clone_resp.json -w "%{http_code}" --max-time 30 \
+              "${MIAOBU_API_URL}${URL_PATH}" \
+              -H "X-Miaobu-Signature: ${SIG}") || HTTP_CODE="000"
+
+            if [ "$HTTP_CODE" = "200" ]; then break; fi
+
+            if [ "$HTTP_CODE" -ge 400 ] 2>/dev/null && [ "$HTTP_CODE" -lt 500 ] 2>/dev/null; then
+              echo "::error::Fetch clone token failed: HTTP $HTTP_CODE (client error)"
+              cat /tmp/clone_resp.json 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "::warning::Fetch clone token attempt $attempt failed (HTTP $HTTP_CODE), retrying in 10s..."
+            sleep 10
+          done
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Fetch clone token failed after 5 attempts (last HTTP $HTTP_CODE)"
+            cat /tmp/clone_resp.json 2>/dev/null || true
+            exit 1
+          fi
+
+          TOKEN=$(cat /tmp/clone_resp.json | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          echo "::add-mask::${TOKEN}"
+          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout user repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.client_payload.repo_name }}
+          ref: ${{ github.event.client_payload.commit_sha }}
+          token: ${{ steps.clone.outputs.token }}
+          path: user-repo
+
+      - name: Notify building
+        run: |
+          chmod +x .github/scripts/callback.sh
+          BODY='{"deployment_id":${{ github.event.client_payload.deployment_id }},"status":"building","build_logs":"GitHub Actions Node.js build started\nRunner: ubuntu-latest\nRepo: ${{ github.event.client_payload.repo_name }}\nBranch: ${{ github.event.client_payload.branch }}\nCommit: ${{ github.event.client_payload.commit_sha }}\n"}'
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Fetch env vars
+        run: |
+          URL_PATH="/api/v1/internal/deployments/${{ github.event.client_payload.deployment_id }}/env-vars"
+          SIG="sha256=$(echo -n "$URL_PATH" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
+
+          for attempt in 1 2 3 4 5; do
+            HTTP_CODE=$(curl -s -o /tmp/env_resp.json -w "%{http_code}" --max-time 30 \
+              "${MIAOBU_API_URL}${URL_PATH}" \
+              -H "X-Miaobu-Signature: ${SIG}") || HTTP_CODE="000"
+
+            if [ "$HTTP_CODE" = "200" ]; then break; fi
+
+            if [ "$HTTP_CODE" -ge 400 ] 2>/dev/null && [ "$HTTP_CODE" -lt 500 ] 2>/dev/null; then
+              echo "::error::Fetch env vars failed: HTTP $HTTP_CODE (client error)"
+              cat /tmp/env_resp.json 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "::warning::Fetch env vars attempt $attempt failed (HTTP $HTTP_CODE), retrying in 10s..."
+            sleep 10
+          done
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Fetch env vars failed after 5 attempts (last HTTP $HTTP_CODE)"
+            cat /tmp/env_resp.json 2>/dev/null || true
+            exit 1
+          fi
+
+          cat /tmp/env_resp.json | python3 -c "
+          import json, sys, os
+          data = json.load(sys.stdin)
+          env_file = os.environ['GITHUB_ENV']
+          with open(env_file, 'a') as f:
+              for k, v in data.get('env_vars', {}).items():
+                  print(f'::add-mask::{v}')
+                  f.write(f'{k}={v}\n')
+          print(f'Loaded {len(data.get(\"env_vars\", {}))} env var(s)')
+          "
+
+      - name: Detect package manager
+        id: pm
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
+        run: |
+          if [ -f "pnpm-lock.yaml" ]; then
+            echo "manager=pnpm" >> "$GITHUB_OUTPUT"
+          elif [ -f "yarn.lock" ]; then
+            echo "manager=yarn" >> "$GITHUB_OUTPUT"
+          else
+            echo "manager=npm" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.cfg.outputs.node_version }}
+
+      - name: Setup pnpm
+        if: steps.pm.outputs.manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install dependencies
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
+        run: |
+          echo "=== Installing dependencies ==="
+          START=$(date +%s)
+          ${{ steps.cfg.outputs.install_command }} 2>&1 | tail -20
+          END=$(date +%s)
+          echo "build_seconds=$((END - START))" >> "$GITHUB_ENV"
+          echo "=== Install complete ($((END - START))s) ==="
+
+      - name: Build (optional)
+        if: steps.cfg.outputs.build_command != ''
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
+        run: |
+          echo "=== Running build ==="
+          BUILD_START=$(date +%s)
+          ${{ steps.cfg.outputs.build_command }} 2>&1
+          BUILD_END=$(date +%s)
+          echo "build_seconds=$(( ${build_seconds:-0} + BUILD_END - BUILD_START ))" >> "$GITHUB_ENV"
+          echo "=== Build complete ($((BUILD_END - BUILD_START))s) ==="
+
+      - name: Prune dev dependencies
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
+        run: |
+          echo "=== Pruning dev dependencies ==="
+          PM="${{ steps.pm.outputs.manager }}"
+          if [ "$PM" = "pnpm" ]; then
+            pnpm prune --prod
+          elif [ "$PM" = "yarn" ]; then
+            yarn install --production --ignore-scripts
+          else
+            npm prune --production
+          fi
+          echo "=== Prune complete ==="
+
+      - name: Create code package
+        id: package
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
+        run: |
+          COMMIT_TAG=$(echo "${{ github.event.client_payload.commit_sha }}" | cut -c1-12)
+          ZIP_NAME="${{ github.event.client_payload.project_slug }}-${COMMIT_TAG}.zip"
+          zip -r "/tmp/${ZIP_NAME}" . \
+            -x ".git/*" ".github/*" "*.test.*" "*.spec.*" \
+            "__tests__/*" "test/*" "tests/*" ".env*"
+          SIZE=$(du -h "/tmp/${ZIP_NAME}" | cut -f1)
+          echo "Code package: ${ZIP_NAME} (${SIZE})"
+          echo "zip_path=/tmp/${ZIP_NAME}" >> "$GITHUB_OUTPUT"
+          echo "commit_tag=${COMMIT_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify uploading
+        run: |
+          BODY="{\"deployment_id\":${{ github.event.client_payload.deployment_id }},\"status\":\"uploading\",\"build_logs\":\"Dependencies installed in ${build_seconds}s\\nUploading code package to OSS...\\n\"}"
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Install oss2
+        run: pip install oss2
+
+      - name: Upload to OSS
+        run: |
+          python .github/scripts/upload_to_oss.py node \
+            "${{ steps.package.outputs.zip_path }}" \
+            "${{ github.event.client_payload.project_slug }}" \
+            "${{ steps.package.outputs.commit_tag }}"
+
+      - name: Notify uploaded
+        if: success()
+        run: |
+          OSS_KEY="fc-packages/${{ github.event.client_payload.project_slug }}/${{ steps.package.outputs.commit_tag }}.zip"
+          BODY=$(python3 -c "
+          import json
+          print(json.dumps({
+            'deployment_id': ${{ github.event.client_payload.deployment_id }},
+            'status': 'uploaded',
+            'build_time_seconds': ${build_seconds},
+            'build_logs': 'OSS upload complete\n',
+            'oss_key': '${OSS_KEY}'
+          }))
+          ")
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          BODY=$(python3 -c "
+          import json
+          print(json.dumps({
+            'deployment_id': ${{ github.event.client_payload.deployment_id }},
+            'status': 'failed',
+            'error_message': 'GitHub Actions Node.js build failed — check workflow logs',
+            'build_logs': 'Build failed. See GitHub Actions run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n'
+          }))
+          ")
+          chmod +x .github/scripts/callback.sh
+          .github/scripts/callback.sh "$BODY"

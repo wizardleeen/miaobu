@@ -36,7 +36,7 @@ async def trigger_build(project: Project, deployment: Deployment) -> Dict[str, A
     # Pack build config into a single JSON string.
     build_config = json.dumps({
         "install_command": project.install_command or "npm install",
-        "build_command": project.build_command or "npm run build",
+        "build_command": project.build_command if project.build_command else ("" if project.project_type == "node" else "npm run build"),
         "output_directory": project.output_directory or "dist",
         "node_version": project.node_version or "18",
         "root_directory": project.root_directory or "",

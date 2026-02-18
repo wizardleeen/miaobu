@@ -1,7 +1,7 @@
-# Miaobu - Static & Python Deployment Platform
+# Miaobu - Static, Node.js & Python Deployment Platform
 
 ## Project Overview
-Miaobu is a Vercel-like deployment platform that deploys GitHub repositories to Aliyun cloud infrastructure. It supports static sites (Node.js build) and Python web apps (FastAPI/Flask/Django).
+Miaobu is a Vercel-like deployment platform that deploys GitHub repositories to Aliyun cloud infrastructure. It supports static sites (Node.js build), Node.js backend apps (Express/Fastify/NestJS/Koa/Hapi), and Python web apps (FastAPI/Flask/Django).
 
 ## Architecture
 
@@ -15,18 +15,18 @@ Miaobu is a Vercel-like deployment platform that deploys GitHub repositories to 
 ### Traffic Routing (ESA-only architecture)
 ALL traffic routes through Aliyun ESA (Edge Security Acceleration):
 ```
-*.metavm.tech  →  ESA  →  Edge Routine  →  KV lookup  →  OSS (static) or FC (Python)
-custom domains →  ESA  →  Edge Routine  →  KV lookup  →  OSS (static) or FC (Python)
+*.metavm.tech  →  ESA  →  Edge Routine  →  KV lookup  →  OSS (static) or FC (Node.js/Python)
+custom domains →  ESA  →  Edge Routine  →  KV lookup  →  OSS (static) or FC (Node.js/Python)
 ```
 - **Edge Routine** (`edge-routine.js`): ES Module format, uses `new EdgeKV({ namespace: "miaobu" })` for routing decisions
 - **Static sites**: Edge Routine rewrites URL path (keeps same host for ESA caching), ESA fetches from OSS origin
-- **Python apps**: Edge Routine proxies directly to Function Compute endpoint (bypasses cache, adds `Cache-Control: no-store`)
+- **Node.js/Python apps**: Edge Routine proxies directly to Function Compute endpoint (bypasses cache, adds `Cache-Control: no-store`)
 - CDN product is NOT used. All routing goes through ESA.
 
 ### Key Aliyun Services
 - **OSS**: Object storage for static build artifacts. Path: `projects/{slug}/{deployment_id}/`
 - **ESA**: Edge CDN with Edge Routines, Edge KV, Custom Hostnames
-- **FC (Function Compute)**: Serverless hosting for Python apps via custom Docker images
+- **FC (Function Compute)**: Serverless hosting for Node.js and Python apps via code package mode
 - **ACR**: Container registry for Python app Docker images
 
 ### Edge Routine Deployment
@@ -42,9 +42,9 @@ Key: hostname (e.g., `myproject.metavm.tech` or `custom.example.com`)
 Value (JSON):
 ```json
 {
-  "type": "static" | "python",
+  "type": "static" | "node" | "python",
   "oss_path": "projects/{slug}/{deployment_id}",  // static only
-  "fc_endpoint": "https://...",         // python only
+  "fc_endpoint": "https://...",         // node/python only
   "project_slug": "...",
   "deployment_id": 123,
   "commit_sha": "abc123",
@@ -58,9 +58,9 @@ Value (JSON):
 - `backend/app/api/v1/domains_esa.py` - Custom domain management (ESA Custom Hostnames, Edge KV, SSL)
 - `backend/app/services/esa.py` - Aliyun ESA API client (Edge KV, Custom Hostnames, cache purge, SaaS managers)
 - `backend/app/services/github.py` - GitHub API client (OAuth, repos, webhooks, build detection)
-- `backend/app/services/build_detector.py` - Auto-detect framework, build/install commands, output dir from package.json
+- `backend/app/services/build_detector.py` - Auto-detect framework, build/install commands, output dir from package.json; also detects Node.js backend frameworks (Express, Fastify, NestJS, Koa, Hapi)
 - `backend/app/services/oss.py` - Aliyun OSS upload/delete
-- `backend/app/services/fc.py` - Aliyun Function Compute service
+- `backend/app/services/fc.py` - Aliyun Function Compute service (Python + Node.js)
 - `backend/app/models/__init__.py` - SQLAlchemy models (User, Project, Deployment, CustomDomain, etc.)
 - `backend/app/config.py` - Settings (env vars, Aliyun credentials)
 
@@ -139,6 +139,7 @@ Value (JSON):
 - Build commands should always use `npm run build` / `pnpm run build` / `yarn run build` (never hardcoded binary names like `slidev build`)
 - When a lockfile (pnpm-lock.yaml, yarn.lock) is detected, BOTH `install_command` and `build_command` must be overridden
 - Python project detection looks for requirements.txt, pyproject.toml, Pipfile
+- Node.js backend detection: `detect_from_node_backend()` checks for Express, Fastify, NestJS, Koa, Hapi in production dependencies. Returns `project_type: "node"` with appropriate start/install/build commands. Only triggers when a backend framework is found in `dependencies` (not devDependencies).
 
 ### Deploy Flow (Static)
 1. Clone repo → install deps → build → upload to OSS (`projects/{slug}/{deployment_id}/`)
@@ -148,9 +149,16 @@ Value (JSON):
 5. Trigger `cleanup_old_deployments` (keeps 3 most recent, protects custom-domain-pinned, marks old as `PURGED`)
 
 ### Deploy Flow (Python)
-1. Clone repo → Docker build → push to ACR → deploy to FC
+1. Clone repo → install deps to `python_deps/` → zip → upload to OSS → deploy to FC
 2. Write Edge KV entry for `{slug}.metavm.tech` with `type: "python"` and `fc_endpoint`
 3. `deployment_url` is the subdomain URL (not raw FC endpoint)
+
+### Deploy Flow (Node.js)
+1. Clone repo → install deps → optional build → prune devDeps → zip → upload to OSS → deploy to FC
+2. FC function uses Node.js 20 layer (`NODEJS_LAYER_ARN`) with `custom.debian10` runtime
+3. Bootstrap sets `PATH=/opt/nodejs/bin:$PATH`, `NODE_ENV=production`, `PORT=9000`
+4. Write Edge KV entry for `{slug}.metavm.tech` with `type: "node"` and `fc_endpoint`
+5. Edge routine treats `type: "node"` identically to `type: "python"` (both proxy to FC)
 
 ### Query Ordering
 - Always add explicit `order_by()` to SQLAlchemy queries that return lists. PostgreSQL does not guarantee row order without it.
@@ -163,7 +171,7 @@ Code is deployed via `git push` to the `main` branch. Docker containers are **no
 
 ### GitHub Actions Build Pipeline
 - Builds are triggered via `repository_dispatch` (type `miaobu-build`) when a user deploys their project.
-- Workflow: `.github/workflows/build.yml` — has `build-static` and `build-python` jobs.
+- Workflow: `.github/workflows/build.yml` — has `build-static`, `build-python`, and `build-node` jobs.
 - All API calls (clone-token, env-vars, callbacks) have **retry logic** (5 attempts, 10s apart) to survive backend redeploys. Only retries on 5xx/connection errors; fails immediately on 4xx.
 - Callback helper: `.github/scripts/callback.sh` — sends signed POST to the build-callback endpoint with retry.
 - **Key issue**: when a git push redeploys the backend, any concurrent GHA builds will hit the API during the restart window. The retry logic handles this.

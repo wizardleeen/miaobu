@@ -12,6 +12,7 @@
  * KV Value Format:
  *   Static:  { "type": "static", "oss_path": "projects/slug/", ... }
  *   Python:  { "type": "python", "fc_endpoint": "https://...", ... }
+ *   Node:    { "type": "node",   "fc_endpoint": "https://...", ... }
  *   Legacy:  { "oss_path": "projects/slug/", ... }  (no type = static)
  */
 
@@ -34,7 +35,7 @@ export default {
 
         const projectType = mapping.type || 'static';
 
-        if (projectType === 'python') {
+        if (projectType === 'python' || projectType === 'node') {
           if (!mapping.fc_endpoint) {
             console.error(`[Miaobu] Python mapping missing fc_endpoint:`, mapping);
             return new Response('Invalid mapping: missing fc_endpoint', { status: 500 });

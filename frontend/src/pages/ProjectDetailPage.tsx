@@ -106,7 +106,7 @@ export default function ProjectDetailPage() {
       <div className="grid md:grid-cols-2 gap-4 mb-8">
         <div className="card p-5">
           <h2 className="text-sm font-semibold text-[--text-primary] mb-4">
-            {project.project_type === 'python' ? '部署配置' : '构建配置'}
+            {project.project_type === 'python' || project.project_type === 'node' ? '部署配置' : '构建配置'}
           </h2>
           <div className="space-y-3">
             {project.project_type === 'python' ? (
@@ -127,6 +127,29 @@ export default function ProjectDetailPage() {
                 <div>
                   <label className="text-xs text-[--text-tertiary]">Python 版本</label>
                   <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.python_version || '3.11'}</p>
+                </div>
+                {project.fc_endpoint_url && (
+                  <div>
+                    <label className="text-xs text-[--text-tertiary]">服务端点</label>
+                    <p className="font-mono text-xs bg-[--bg-tertiary] p-2 rounded-lg mt-0.5 truncate">{project.fc_endpoint_url}</p>
+                  </div>
+                )}
+              </>
+            ) : project.project_type === 'node' ? (
+              <>
+                <div>
+                  <label className="text-xs text-[--text-tertiary]">项目类型</label>
+                  <p className="text-sm mt-0.5">
+                    <span className="badge-info">Node.js 后端</span>
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs text-[--text-tertiary]">启动命令</label>
+                  <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.start_command || '—'}</p>
+                </div>
+                <div>
+                  <label className="text-xs text-[--text-tertiary]">Node 版本</label>
+                  <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.node_version || '18'}</p>
                 </div>
                 {project.fc_endpoint_url && (
                   <div>

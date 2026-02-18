@@ -199,13 +199,136 @@ def deploy_python(
         log(f"Warning: Edge KV update failed for {subdomain}: {kv_result.get('error')}")
 
     # --- Auto-update custom domains ---
-    _sync_custom_domains_python(
+    _sync_custom_domains_fc(
         project=project,
         deployment=deployment,
         fc_endpoint=fc_endpoint,
         esa_service=esa_service,
         db=db,
         log=log,
+        kv_type="python",
+    )
+
+    # --- Mark DEPLOYED ---
+    deployment.status = DeploymentStatus.DEPLOYED
+    deployment.deployed_at = datetime.utcnow()
+    deployment.deployment_url = deployment_url
+    db.commit()
+
+    # --- Cache purge ---
+    _purge_project_cache(project, esa_service, db, log)
+
+    log(f"Deployment URL: {deployment_url}")
+    log(f"FC Endpoint: {fc_endpoint}")
+    return {
+        "success": True,
+        "deployment_id": deployment_id,
+        "deployment_url": deployment_url,
+        "fc_endpoint": fc_endpoint,
+    }
+
+
+def deploy_node(
+    deployment_id: int,
+    oss_key: str,
+    db: Session,
+    log: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Any]:
+    """
+    Finalize a Node.js backend deployment after code package upload.
+
+    Steps:
+    1. Deploy/update FC function with Node.js layer
+    2. Update Edge KV for subdomain routing
+    3. Sync custom domains with auto-update enabled
+    4. Purge ESA cache
+    5. Mark deployment as DEPLOYED
+
+    Args:
+        deployment_id: Deployment record ID
+        oss_key: OSS object key for the uploaded code zip
+        db: Active SQLAlchemy session
+        log: Optional logging callback
+    """
+    settings = get_settings()
+    if log is None:
+        log = lambda msg: None
+
+    deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
+    if not deployment:
+        return {"success": False, "error": f"Deployment {deployment_id} not found"}
+
+    project = deployment.project
+
+    # --- Deploy to Function Compute ---
+    from .fc import FCService
+
+    deployment.status = DeploymentStatus.DEPLOYING
+    db.commit()
+
+    fc_service = FCService()
+    fc_function_name = f"miaobu-{project.slug}"
+    start_command = project.start_command or "npm start"
+
+    # Collect environment variables
+    env_vars = _get_project_env_vars(project.id, db, log)
+
+    log(f"Function name: {fc_function_name}")
+    log(f"Start command: {start_command}")
+
+    fc_result = fc_service.create_or_update_node_function(
+        name=fc_function_name,
+        oss_bucket=settings.aliyun_fc_oss_bucket,
+        oss_key=oss_key,
+        start_command=start_command,
+        env_vars=env_vars if env_vars else None,
+    )
+
+    if not fc_result["success"]:
+        return {"success": False, "error": f"FC deployment failed: {fc_result.get('error')}"}
+
+    fc_endpoint = fc_result["endpoint_url"]
+    log(f"Function deployed: {fc_function_name}")
+    log(f"Endpoint: {fc_endpoint}")
+
+    # Update project with FC info
+    project.fc_function_name = fc_function_name
+    project.fc_endpoint_url = fc_endpoint
+    db.commit()
+
+    commit_tag = deployment.commit_sha[:12] if deployment.commit_sha else "unknown"
+    deployment.fc_function_version = commit_tag
+
+    # --- Edge KV for subdomain ---
+    esa_service = ESAService()
+    subdomain = f"{project.slug}.{settings.cdn_base_domain}"
+    deployment_url = f"https://{subdomain}/"
+
+    kv_value = json.dumps({
+        "type": "node",
+        "fc_endpoint": fc_endpoint,
+        "project_slug": project.slug,
+        "deployment_id": deployment.id,
+        "commit_sha": deployment.commit_sha,
+        "updated_at": datetime.utcnow().isoformat(),
+    })
+
+    log("Updating Edge KV for subdomain routing...")
+    kv_result = esa_service.put_edge_kv(subdomain, kv_value)
+    if kv_result["success"]:
+        log(f"Edge KV updated for {subdomain}")
+    else:
+        log(f"Warning: Edge KV update failed for {subdomain}: {kv_result.get('error')}")
+
+    # --- Auto-update custom domains ---
+    _sync_custom_domains_fc(
+        project=project,
+        deployment=deployment,
+        fc_endpoint=fc_endpoint,
+        esa_service=esa_service,
+        db=db,
+        log=log,
+        kv_type="node",
     )
 
     # --- Mark DEPLOYED ---
@@ -364,15 +487,16 @@ def _sync_custom_domains_static(
         log(f"Warning: custom domain sync failed: {e}")
 
 
-def _sync_custom_domains_python(
+def _sync_custom_domains_fc(
     project: Project,
     deployment: Deployment,
     fc_endpoint: str,
     esa_service: ESAService,
     db: Session,
     log: Callable,
+    kv_type: str = "python",
 ) -> None:
-    """Update Edge KV for custom domains with auto-update enabled (Python)."""
+    """Update Edge KV for custom domains with auto-update enabled (FC-based: Python or Node)."""
     try:
         domains = (
             db.query(CustomDomain)
@@ -390,7 +514,7 @@ def _sync_custom_domains_python(
         log(f"Updating {len(domains)} custom domain(s)...")
         for domain in domains:
             kv_value = json.dumps({
-                "type": "python",
+                "type": kv_type,
                 "fc_endpoint": fc_endpoint,
                 "project_slug": project.slug,
                 "deployment_id": deployment.id,

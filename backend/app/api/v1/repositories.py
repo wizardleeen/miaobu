@@ -188,7 +188,12 @@ async def import_repository(
             root_dir = detected_root_dir
             project_type_str = detected_project_type
 
-        project_type = "python" if project_type_str == "python" else "static"
+        if project_type_str == "python":
+            project_type = "python"
+        elif project_type_str == "node":
+            project_type = "node"
+        else:
+            project_type = "static"
 
         # Generate unique slug
         slug = generate_slug(project_name, current_user.id, db)
@@ -218,6 +223,18 @@ async def import_repository(
                 project_kwargs["python_version"] = build_config.get("python_version", "3.11")
                 project_kwargs["start_command"] = build_config.get("start_command", "")
                 project_kwargs["python_framework"] = build_config.get("python_framework")
+        elif project_type == "node":
+            # Node.js backend fields
+            if custom_config:
+                project_kwargs["start_command"] = custom_config.get("start_command", build_config.get("start_command", "npm start"))
+                project_kwargs["install_command"] = custom_config.get("install_command", build_config.get("install_command", "npm install"))
+                project_kwargs["build_command"] = custom_config.get("build_command", build_config.get("build_command", ""))
+                project_kwargs["node_version"] = custom_config.get("node_version", build_config.get("node_version", "18"))
+            else:
+                project_kwargs["start_command"] = build_config.get("start_command", "npm start")
+                project_kwargs["install_command"] = build_config.get("install_command", "npm install")
+                project_kwargs["build_command"] = build_config.get("build_command", "")
+                project_kwargs["node_version"] = build_config.get("node_version", "18")
         else:
             # Static/Node.js fields
             if custom_config:

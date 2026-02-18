@@ -18,6 +18,9 @@ from ..config import get_settings
 # Python 3.10 layer ARN (pre-built standalone Python binary)
 PYTHON_LAYER_ARN = 'acs:fc:cn-qingdao:1765215622020297:layers/python310/versions/1'
 
+# Node.js 20 layer ARN (pre-built standalone Node.js binary)
+NODEJS_LAYER_ARN = 'acs:fc:cn-qingdao:1765215622020297:layers/nodejs20/versions/1'
+
 
 class FCService:
     """
@@ -168,6 +171,126 @@ class FCService:
             'function_name': name,
             'endpoint_url': endpoint_url,
             'message': f'Function {name} {action} successfully',
+        }
+
+    def create_or_update_node_function(
+        self,
+        name: str,
+        oss_bucket: str,
+        oss_key: str,
+        start_command: str,
+        env_vars: Optional[Dict[str, str]] = None,
+        memory_mb: int = 512,
+        timeout: int = 60,
+    ) -> Dict[str, Any]:
+        """
+        Create or update an FC function for a Node.js backend app.
+
+        Uses custom.debian10 runtime with Node.js 20 layer.
+        The layer provides /opt/nodejs/bin/node and /opt/nodejs/bin/npm.
+
+        Args:
+            name: Function name (e.g., "miaobu-my-app")
+            oss_bucket: OSS bucket containing the code zip
+            oss_key: OSS object key for the code zip
+            start_command: Shell command to start the app (e.g., "npm start")
+            env_vars: Environment variables for the function
+            memory_mb: Memory allocation in MB
+            timeout: Function timeout in seconds
+
+        Returns:
+            Result dict with endpoint_url if successful
+        """
+        code = fc_models.InputCodeLocation(
+            oss_bucket_name=oss_bucket,
+            oss_object_name=oss_key,
+        )
+
+        # Normalize the start command to use the layer's Node.js
+        normalized_cmd = start_command
+        for tool in ('node', 'npm', 'npx'):
+            if normalized_cmd.startswith(tool + ' ') or normalized_cmd == tool:
+                normalized_cmd = f'/opt/nodejs/bin/{normalized_cmd}'
+                break
+
+        # Bootstrap: set PATH for layer's Node.js binaries
+        bootstrap_cmd = (
+            f'export PATH=/opt/nodejs/bin:$PATH '
+            f'&& export NODE_ENV=production '
+            f'&& export PORT=9000 '
+            f'&& exec {normalized_cmd}'
+        )
+
+        custom_runtime = fc_models.CustomRuntimeConfig(
+            command=["/bin/bash", "-c", bootstrap_cmd],
+            port=9000,
+        )
+
+        is_update = False
+
+        try:
+            create_input = fc_models.CreateFunctionInput(
+                function_name=name,
+                runtime='custom.debian10',
+                handler='index.handler',
+                code=code,
+                custom_runtime_config=custom_runtime,
+                memory_size=memory_mb,
+                timeout=timeout,
+                internet_access=True,
+                environment_variables=env_vars or {},
+                layers=[NODEJS_LAYER_ARN],
+            )
+            request = fc_models.CreateFunctionRequest(body=create_input)
+            self.client.create_function(request)
+            print(f"FC: Created Node.js function {name}")
+
+        except Exception as e:
+            if 'FunctionAlreadyExists' in str(e):
+                is_update = True
+                merged_env = {}
+                try:
+                    existing = self.client.get_function(name, fc_models.GetFunctionRequest())
+                    merged_env = dict(existing.body.environment_variables or {})
+                except Exception:
+                    pass
+                merged_env.update(env_vars or {})
+
+                update_input = fc_models.UpdateFunctionInput(
+                    runtime='custom.debian10',
+                    handler='index.handler',
+                    code=code,
+                    custom_runtime_config=custom_runtime,
+                    memory_size=memory_mb,
+                    timeout=timeout,
+                    internet_access=True,
+                    environment_variables=merged_env,
+                    layers=[NODEJS_LAYER_ARN],
+                )
+                update_request = fc_models.UpdateFunctionRequest(body=update_input)
+                self.client.update_function(name, update_request)
+                print(f"FC: Updated Node.js function {name}")
+            else:
+                print(f"FC: Error creating Node.js function {name}: {e}")
+                return {
+                    'success': False,
+                    'error': str(e),
+                }
+
+        endpoint_url = self._ensure_http_trigger(name)
+
+        if not endpoint_url:
+            return {
+                'success': False,
+                'error': 'Failed to create HTTP trigger',
+            }
+
+        action = 'updated' if is_update else 'created'
+        return {
+            'success': True,
+            'function_name': name,
+            'endpoint_url': endpoint_url,
+            'message': f'Node.js function {name} {action} successfully',
         }
 
     def _ensure_http_trigger(self, function_name: str) -> Optional[str]:

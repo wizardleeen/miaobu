@@ -121,6 +121,9 @@ if __name__ == "__main__":
         upload_static(sys.argv[2], sys.argv[3], sys.argv[4])
     elif mode == "python":
         upload_python(sys.argv[2], sys.argv[3], sys.argv[4])
+    elif mode == "node":
+        # Node.js backend uses same bucket/path pattern as Python (FC packages)
+        upload_python(sys.argv[2], sys.argv[3], sys.argv[4])
     else:
         print(f"Unknown mode: {mode}")
         sys.exit(1)

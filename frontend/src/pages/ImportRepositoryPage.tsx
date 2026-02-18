@@ -259,6 +259,11 @@ export default function ImportRepositoryPage() {
                             <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span>
                             Python 后端
                           </span>
+                        ) : analysis.project_type === 'node' ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
+                            Node.js 后端
+                          </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5">
                             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
@@ -284,7 +289,7 @@ export default function ImportRepositoryPage() {
                         )}
                       </p>
                     </div>
-                    {analysis.project_type !== 'python' && (
+                    {analysis.project_type !== 'python' && analysis.build_config.package_manager && (
                       <div>
                         <label className="text-xs text-[--text-tertiary]">包管理器</label>
                         <p className="font-medium text-sm text-[--text-primary] mt-0.5">{analysis.build_config.package_manager}</p>
@@ -302,7 +307,7 @@ export default function ImportRepositoryPage() {
                 {/* Configuration Form */}
                 <div className="card p-5">
                   <h2 className="text-sm font-semibold text-[--text-primary] mb-1">
-                    {customConfig.project_type === 'python' ? 'Python 部署配置' : '构建配置'}
+                    {customConfig.project_type === 'python' ? 'Python 部署配置' : customConfig.project_type === 'node' ? 'Node.js 部署配置' : '构建配置'}
                   </h2>
                   <p className="text-xs text-[--text-secondary] mb-4">
                     检查并自定义自动检测的设置
@@ -331,6 +336,7 @@ export default function ImportRepositoryPage() {
                         }
                       >
                         <option value="static">静态/前端 (Node.js)</option>
+                        <option value="node">Node.js 后端</option>
                         <option value="python">Python 后端</option>
                       </select>
                     </div>
@@ -384,6 +390,66 @@ export default function ImportRepositoryPage() {
                             <option value="3.10">3.10</option>
                             <option value="3.11">3.11</option>
                             <option value="3.12">3.12</option>
+                          </select>
+                        </div>
+                      </>
+                    ) : customConfig.project_type === 'node' ? (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-[--text-secondary] mb-1">启动命令</label>
+                          <input
+                            type="text"
+                            className="input font-mono text-sm"
+                            placeholder="npm start"
+                            value={customConfig.start_command || ''}
+                            onChange={(e) =>
+                              setCustomConfig({ ...customConfig, start_command: e.target.value })
+                            }
+                          />
+                          <p className="text-xs text-[--text-tertiary] mt-1">
+                            应用必须监听端口 9000（通过 PORT 环境变量）
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-[--text-secondary] mb-1">安装命令</label>
+                          <input
+                            type="text"
+                            className="input font-mono text-sm"
+                            value={customConfig.install_command || 'npm install'}
+                            onChange={(e) =>
+                              setCustomConfig({ ...customConfig, install_command: e.target.value })
+                            }
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-[--text-secondary] mb-1">构建命令（可选）</label>
+                          <input
+                            type="text"
+                            className="input font-mono text-sm"
+                            placeholder="留空则跳过构建步骤"
+                            value={customConfig.build_command || ''}
+                            onChange={(e) =>
+                              setCustomConfig({ ...customConfig, build_command: e.target.value })
+                            }
+                          />
+                          <p className="text-xs text-[--text-tertiary] mt-1">
+                            TypeScript 项目通常需要 npm run build
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-[--text-secondary] mb-1">Node 版本</label>
+                          <select
+                            className="input"
+                            value={customConfig.node_version || '18'}
+                            onChange={(e) =>
+                              setCustomConfig({ ...customConfig, node_version: e.target.value })
+                            }
+                          >
+                            <option value="18">18</option>
+                            <option value="20">20</option>
                           </select>
                         </div>
                       </>

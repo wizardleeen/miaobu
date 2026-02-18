@@ -11,6 +11,7 @@ class ProjectType(str, enum.Enum):
     """Project type enumeration."""
     STATIC = "static"
     PYTHON = "python"
+    NODE = "node"
 
 
 class DeploymentStatus(str, enum.Enum):

@@ -36,11 +36,11 @@ export default function LandingPage() {
             一键部署你的项目
             <br />
             <span className="bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">
-              前端静态站 & Python 后端
+              前端 & Node.js & Python 后端
             </span>
           </h1>
           <p className="text-xl text-[--text-secondary] mb-10 max-w-2xl mx-auto">
-            连接 GitHub 仓库，自动构建并部署到云端。支持 React、Vue 等前端框架和 FastAPI、Flask 等 Python 后端。
+            连接 GitHub 仓库，自动构建并部署到云端。支持主流前端框架、Node.js 和 Python 后端。
           </p>
           <div className="flex gap-4 justify-center">
             {isAuthenticated ? (

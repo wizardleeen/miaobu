@@ -284,7 +284,39 @@ class GitHubService:
                 GitHubService.get_file_content(access_token, owner, repo, vercel_json_path, branch),
             )
 
+            # Check if this is a Node.js backend project
+            node_backend_config = None
             if package_json:
+                node_backend_config = BuildDetector.detect_from_node_backend(package_json)
+
+            if node_backend_config:
+                # Node.js backend project
+                project_type = "node"
+                build_config = node_backend_config
+
+                node_version = BuildDetector.detect_node_version_from_files(
+                    package_json=package_json,
+                    nvmrc=nvmrc,
+                    node_version_file=node_version_file,
+                    netlify_toml=netlify_toml,
+                    vercel_json=vercel_json
+                )
+                build_config["node_version"] = node_version
+
+                # Override install/build commands based on lockfile
+                if repo_structure["lock_file"]:
+                    if repo_structure["lock_file"] == "yarn":
+                        build_config["install_command"] = "yarn install"
+                        if build_config.get("build_command"):
+                            build_config["build_command"] = "yarn run build"
+                        build_config["package_manager"] = "yarn"
+                    elif repo_structure["lock_file"] == "pnpm":
+                        build_config["install_command"] = "pnpm install"
+                        if build_config.get("build_command"):
+                            build_config["build_command"] = "pnpm run build"
+                        build_config["package_manager"] = "pnpm"
+
+            elif package_json:
                 build_config = BuildDetector.detect_from_package_json(package_json)
 
                 node_version = BuildDetector.detect_node_version_from_files(
@@ -307,25 +339,25 @@ class GitHubService:
                     detection_sources.append("vercel.json")
 
                 build_config["node_version_source"] = detection_sources[0] if detection_sources else "default"
+                build_config["project_type"] = "static"
+
+                # Override install/build commands based on lockfile
+                if repo_structure["lock_file"]:
+                    if repo_structure["lock_file"] == "yarn":
+                        build_config["install_command"] = "yarn install"
+                        build_config["build_command"] = "yarn run build"
+                        build_config["package_manager"] = "yarn"
+                    elif repo_structure["lock_file"] == "pnpm":
+                        build_config["install_command"] = "pnpm install"
+                        build_config["build_command"] = "pnpm run build"
+                        build_config["package_manager"] = "pnpm"
             else:
                 not_found_msg = f"No package.json found at {package_json_path}" if root_directory else "No package.json found - this may not be a Node.js project"
                 build_config = BuildDetector._get_default_config(
                     "unknown",
                     not_found_msg
                 )
-
-            build_config["project_type"] = "static"
-
-            # Override install/build commands based on lockfile
-            if repo_structure["lock_file"]:
-                if repo_structure["lock_file"] == "yarn":
-                    build_config["install_command"] = "yarn install"
-                    build_config["build_command"] = "yarn run build"
-                    build_config["package_manager"] = "yarn"
-                elif repo_structure["lock_file"] == "pnpm":
-                    build_config["install_command"] = "pnpm install"
-                    build_config["build_command"] = "pnpm run build"
-                    build_config["package_manager"] = "pnpm"
+                build_config["project_type"] = "static"
 
         return {
             "repository": {

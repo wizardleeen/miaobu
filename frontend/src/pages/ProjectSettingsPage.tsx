@@ -171,7 +171,7 @@ export default function ProjectSettingsPage() {
           {/* Build Settings */}
           <div className="card p-5">
             <h2 className="text-sm font-semibold text-[--text-primary] mb-4">
-              {project.project_type === 'python' ? '部署配置' : '构建配置'}
+              {project.project_type === 'python' || project.project_type === 'node' ? '部署配置' : '构建配置'}
             </h2>
             <div className="space-y-4">
               <div>
@@ -217,6 +217,59 @@ export default function ProjectSettingsPage() {
                       <option value="3.10">3.10</option>
                       <option value="3.11">3.11</option>
                       <option value="3.12">3.12</option>
+                    </select>
+                  </div>
+                </>
+              ) : project.project_type === 'node' ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-[--text-secondary] mb-1">启动命令</label>
+                    <input
+                      type="text"
+                      className="input font-mono text-sm"
+                      value={formData.start_command}
+                      onChange={(e) => setFormData({ ...formData, start_command: e.target.value })}
+                      placeholder="npm start"
+                    />
+                    <p className="text-xs text-[--text-tertiary] mt-1">
+                      应用必须监听端口 9000（通过 PORT 环境变量）
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[--text-secondary] mb-1">安装命令</label>
+                    <input
+                      type="text"
+                      className="input font-mono text-sm"
+                      value={formData.install_command}
+                      onChange={(e) => setFormData({ ...formData, install_command: e.target.value })}
+                      placeholder="npm install"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[--text-secondary] mb-1">构建命令（可选）</label>
+                    <input
+                      type="text"
+                      className="input font-mono text-sm"
+                      value={formData.build_command}
+                      onChange={(e) => setFormData({ ...formData, build_command: e.target.value })}
+                      placeholder="留空则跳过构建步骤"
+                    />
+                    <p className="text-xs text-[--text-tertiary] mt-1">
+                      TypeScript 项目通常需要 npm run build
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[--text-secondary] mb-1">Node 版本</label>
+                    <select
+                      className="input"
+                      value={formData.node_version}
+                      onChange={(e) => setFormData({ ...formData, node_version: e.target.value })}
+                    >
+                      <option value="18">18</option>
+                      <option value="20">20</option>
                     </select>
                   </div>
                 </>
