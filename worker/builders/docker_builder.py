@@ -181,7 +181,8 @@ class DockerBuilder:
         install_command: str,
         node_version: str,
         use_cache: bool = True,
-        root_directory: str = ""
+        root_directory: str = "",
+        env_vars: dict = None
     ) -> bool:
         """
         Install dependencies in Docker container.
@@ -276,11 +277,19 @@ class DockerBuilder:
                 "-e", "HTTPS_PROXY=",
                 "-e", "http_proxy=",
                 "-e", "https_proxy=",
+            ]
+
+            # Inject project environment variables
+            if env_vars:
+                for key, value in env_vars.items():
+                    docker_cmd.extend(["-e", f"{key}={value}"])
+
+            docker_cmd.extend([
                 "-v", f"{repo_dir.absolute()}:/app",
                 "-w", docker_work_dir,
                 f"node:{node_version}-alpine",
                 "sh", "-c", final_command
-            ]
+            ])
 
             process = subprocess.Popen(
                 docker_cmd,
@@ -329,7 +338,8 @@ class DockerBuilder:
         repo_dir: Path,
         build_command: str,
         node_version: str,
-        root_directory: str = ""
+        root_directory: str = "",
+        env_vars: dict = None
     ) -> Path:
         """
         Run build command in Docker container.
@@ -412,11 +422,19 @@ class DockerBuilder:
                 "-e", "NODE_ENV=production",          # Set production environment
                 "-e", "CI=true",                      # Indicate CI environment
                 "-e", "NO_COLOR=1",                   # Disable color output for cleaner logs
+            ]
+
+            # Inject project environment variables
+            if env_vars:
+                for key, value in env_vars.items():
+                    docker_cmd.extend(["-e", f"{key}={value}"])
+
+            docker_cmd.extend([
                 "-v", f"{repo_dir.absolute()}:/app",
                 "-w", docker_work_dir,
                 f"node:{node_version}-alpine",
                 "sh", "-c", final_command
-            ]
+            ])
 
             process = subprocess.Popen(
                 docker_cmd,

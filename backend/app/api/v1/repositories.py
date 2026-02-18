@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import httpx
 
 from ...database import get_db
@@ -10,6 +11,12 @@ from ...core.security import get_current_user
 from ...core.exceptions import BadRequestException, ConflictException
 from ...api.v1.projects import generate_slug
 from ...config import get_settings
+
+
+class ImportRepositoryRequest(BaseModel):
+    branch: Optional[str] = None
+    root_directory: Optional[str] = None
+    custom_config: Optional[Dict[str, Any]] = None
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
 
@@ -113,9 +120,7 @@ async def analyze_repository(
 async def import_repository(
     owner: str,
     repo: str,
-    branch: Optional[str] = None,
-    root_directory: Optional[str] = None,
-    custom_config: Optional[dict] = None,
+    body: ImportRepositoryRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -129,6 +134,10 @@ async def import_repository(
     settings = get_settings()
     try:
         # Analyze repository
+        branch = body.branch
+        root_directory = body.root_directory
+        custom_config = body.custom_config
+
         analysis = await GitHubService.analyze_repository(
             current_user.github_access_token,
             owner,
@@ -142,14 +151,25 @@ async def import_repository(
         detected_root_dir = analysis.get("root_directory", "")
         detected_project_type = analysis.get("project_type", "static")
 
-        # Check if already imported
+        # Check if already imported (same repo + same root directory = duplicate)
+        # Use custom_config root_directory if provided, else detected, else input param
+        check_root_dir = ""
+        if custom_config and custom_config.get("root_directory"):
+            check_root_dir = custom_config["root_directory"]
+        elif detected_root_dir:
+            check_root_dir = detected_root_dir
+        elif root_directory:
+            check_root_dir = root_directory
+
         existing = db.query(Project).filter(
             Project.user_id == current_user.id,
-            Project.github_repo_id == repo_info["id"]
+            Project.github_repo_id == repo_info["id"],
+            Project.root_directory == check_root_dir
         ).first()
 
         if existing:
-            raise ConflictException(f"Repository {repo_info['full_name']} is already imported")
+            label = f"{repo_info['full_name']}/{check_root_dir}" if check_root_dir else repo_info['full_name']
+            raise ConflictException(f"Repository {label} is already imported")
 
         # Use custom config if provided, otherwise use detected config
         if custom_config:

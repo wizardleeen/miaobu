@@ -118,9 +118,9 @@ class ApiService {
   }
 
   // Repository endpoints
-  async listRepositories(page: number = 1, perPage: number = 30, search?: string) {
+  async listRepositories(page: number = 1, perPage: number = 30, search?: string, rootDirectory?: string) {
     const response = await this.client.get('/repositories', {
-      params: { page, per_page: perPage, search },
+      params: { page, per_page: perPage, search, root_directory: rootDirectory || undefined },
     })
     return response.data
   }

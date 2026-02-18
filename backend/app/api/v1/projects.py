@@ -50,14 +50,15 @@ async def create_project(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new project."""
-    # Check if project with same repo already exists for this user
+    # Check if project with same repo + root directory already exists for this user
     existing = db.query(Project).filter(
         Project.user_id == current_user.id,
-        Project.github_repo_id == project_data.github_repo_id
+        Project.github_repo_id == project_data.github_repo_id,
+        Project.root_directory == (project_data.root_directory or "")
     ).first()
 
     if existing:
-        raise ConflictException("Project with this repository already exists")
+        raise ConflictException("Project with this repository and root directory already exists")
 
     # Generate unique slug
     slug = generate_slug(project_data.name, current_user.id, db)

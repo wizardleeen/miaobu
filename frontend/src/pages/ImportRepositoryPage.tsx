@@ -41,7 +41,6 @@ export default function ImportRepositoryPage() {
   })
 
   const handleSelectRepo = async (repo: Repository) => {
-    if (repo.is_imported) return
 
     setSelectedRepo(repo)
     setAnalyzing(true)
@@ -141,9 +140,7 @@ export default function ImportRepositoryPage() {
                 {reposData.repositories.map((repo: Repository) => (
                   <div
                     key={repo.id}
-                    className={`card p-5 transition-colors ${
-                      repo.is_imported ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-accent/50'
-                    }`}
+                    className="card p-5 transition-colors cursor-pointer hover:border-accent/50"
                     onClick={() => handleSelectRepo(repo)}
                   >
                     <div className="flex justify-between items-start">
@@ -172,9 +169,7 @@ export default function ImportRepositoryPage() {
                           <span>更新于 {new Date(repo.updated_at).toLocaleDateString()}</span>
                         </div>
                       </div>
-                      {!repo.is_imported && (
-                        <button className="btn-primary text-sm">选择</button>
-                      )}
+                      <button className="btn-primary text-sm">选择</button>
                     </div>
                   </div>
                 ))}

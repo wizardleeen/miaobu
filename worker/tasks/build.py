@@ -7,7 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'backend'))
 
 from celery_app import app, get_db
-from app.models import Deployment, Project, DeploymentStatus
+from app.models import Deployment, Project, DeploymentStatus, EnvironmentVariable
+from app.services.encryption import decrypt_value
 from builders.docker_builder import DockerBuilder
 
 
@@ -51,6 +52,17 @@ def build_and_deploy(self, deployment_id: int):
 
         builder.set_log_callback(log_callback)
 
+        # Fetch environment variables for this project
+        env_vars_records = db.query(EnvironmentVariable).filter(
+            EnvironmentVariable.project_id == project.id
+        ).all()
+        env_vars = {}
+        for ev in env_vars_records:
+            try:
+                env_vars[ev.key] = decrypt_value(ev.value)
+            except Exception:
+                env_vars[ev.key] = ev.value
+
         try:
             # Step 1: Clone repository
             builder.log("=" * 60)
@@ -80,7 +92,8 @@ def build_and_deploy(self, deployment_id: int):
                 install_command=project.install_command,
                 node_version=project.node_version,
                 use_cache=True,
-                root_directory=project.root_directory or ""
+                root_directory=project.root_directory or "",
+                env_vars=env_vars
             )
 
             # Step 3: Run build
@@ -93,7 +106,8 @@ def build_and_deploy(self, deployment_id: int):
                 repo_dir=repo_dir,
                 build_command=project.build_command,
                 node_version=project.node_version,
-                root_directory=project.root_directory or ""
+                root_directory=project.root_directory or "",
+                env_vars=env_vars
             )
 
             # Step 4: Verify output directory exists
