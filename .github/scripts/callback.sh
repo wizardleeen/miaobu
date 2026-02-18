@@ -12,7 +12,7 @@ BODY="$1"
 SIGNATURE="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
 
 for attempt in 1 2 3 4 5; do
-  HTTP_CODE=$(curl -s -o /tmp/cb_response.txt -w "%{http_code}" --max-time 30 \
+  HTTP_CODE=$(curl -s -o /tmp/cb_response.txt -w "%{http_code}" --max-time 60 \
     -X POST "${MIAOBU_API_URL}/api/v1/internal/build-callback" \
     -H "Content-Type: application/json" \
     -H "X-Miaobu-Signature: ${SIGNATURE}" \

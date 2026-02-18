@@ -440,15 +440,18 @@ class FCService:
             print(f"FC: Created function {name}")
         except Exception as e:
             if 'FunctionAlreadyExists' in str(e):
-                # Stale leftover from a previous failed attempt — delete and retry
-                print(f"FC: Function {name} already exists (stale), deleting and recreating...")
-                self.delete_function(name)
-                try:
-                    self.client.create_function(request)
-                    print(f"FC: Recreated function {name}")
-                except Exception as e2:
-                    print(f"FC: Error recreating function {name}: {e2}")
-                    return {'success': False, 'error': str(e2)}
+                # Function already exists — reuse it instead of destroying a
+                # potentially working function (defense in depth for retries)
+                print(f"FC: Function {name} already exists, reusing...")
+                endpoint_url = self._ensure_http_trigger(name)
+                if endpoint_url:
+                    return {
+                        'success': True,
+                        'function_name': name,
+                        'endpoint_url': endpoint_url,
+                        'message': f'Function {name} already exists, reused',
+                    }
+                return {'success': False, 'error': f'Function {name} exists but trigger URL unavailable'}
             else:
                 print(f"FC: Error creating function {name}: {e}")
                 return {'success': False, 'error': str(e)}
@@ -525,15 +528,18 @@ class FCService:
             print(f"FC: Created Node.js function {name}")
         except Exception as e:
             if 'FunctionAlreadyExists' in str(e):
-                # Stale leftover from a previous failed attempt — delete and retry
-                print(f"FC: Node.js function {name} already exists (stale), deleting and recreating...")
-                self.delete_function(name)
-                try:
-                    self.client.create_function(request)
-                    print(f"FC: Recreated Node.js function {name}")
-                except Exception as e2:
-                    print(f"FC: Error recreating Node.js function {name}: {e2}")
-                    return {'success': False, 'error': str(e2)}
+                # Function already exists — reuse it instead of destroying a
+                # potentially working function (defense in depth for retries)
+                print(f"FC: Node.js function {name} already exists, reusing...")
+                endpoint_url = self._ensure_http_trigger(name)
+                if endpoint_url:
+                    return {
+                        'success': True,
+                        'function_name': name,
+                        'endpoint_url': endpoint_url,
+                        'message': f'Node.js function {name} already exists, reused',
+                    }
+                return {'success': False, 'error': f'Node.js function {name} exists but trigger URL unavailable'}
             else:
                 print(f"FC: Error creating Node.js function {name}: {e}")
                 return {'success': False, 'error': str(e)}

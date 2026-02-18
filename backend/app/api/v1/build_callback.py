@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from ...database import get_db
 from ...config import get_settings
 from ...models import Deployment, DeploymentStatus, EnvironmentVariable
-from ...services.deploy import deploy_static, deploy_python, deploy_node
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
 
@@ -91,7 +90,7 @@ async def build_callback(
     status transitions:
       - "building"  → update to BUILDING, append logs
       - "uploading" → update to UPLOADING, append logs
-      - "uploaded"  → call deploy service, mark DEPLOYED
+      - "uploaded"  → set DEPLOYING (ECS deploy worker handles the rest)
       - "failed"    → mark FAILED, store error
     """
     import json
@@ -102,8 +101,6 @@ async def build_callback(
     ).first()
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
-
-    project = deployment.project
 
     # Append logs if provided
     if payload.build_logs:
@@ -121,52 +118,19 @@ async def build_callback(
         return {"ok": True}
 
     if payload.status == "uploaded":
+        # Idempotency guard: if already deploying or deployed, return OK
+        if deployment.status in (DeploymentStatus.DEPLOYING, DeploymentStatus.DEPLOYED):
+            return {"ok": True}
+
         # Record build time
         if payload.build_time_seconds is not None:
             deployment.build_time_seconds = payload.build_time_seconds
 
-        def log(msg):
-            deployment.build_logs = (deployment.build_logs or "") + msg + "\n"
-            db.commit()
-
-        # Dispatch to appropriate deploy handler
-        if project.project_type == "python":
-            if not payload.oss_key:
-                raise HTTPException(
-                    status_code=400,
-                    detail="oss_key required for Python deployments",
-                )
-            result = deploy_python(
-                deployment_id=deployment.id,
-                oss_key=payload.oss_key,
-                db=db,
-                log=log,
-            )
-        elif project.project_type == "node":
-            if not payload.oss_key:
-                raise HTTPException(
-                    status_code=400,
-                    detail="oss_key required for Node.js deployments",
-                )
-            result = deploy_node(
-                deployment_id=deployment.id,
-                oss_key=payload.oss_key,
-                db=db,
-                log=log,
-            )
-        else:
-            result = deploy_static(
-                deployment_id=deployment.id,
-                db=db,
-                log=log,
-            )
-
-        if not result.get("success"):
-            deployment.status = DeploymentStatus.FAILED
-            deployment.error_message = result.get("error", "Deploy step failed")
-            db.commit()
-
-        return result
+        # Set DEPLOYING — the ECS deploy worker will pick this up and run
+        # the actual deploy (blue-green FC creation, Edge KV update, etc.)
+        deployment.status = DeploymentStatus.DEPLOYING
+        db.commit()
+        return {"ok": True}
 
     if payload.status == "failed":
         deployment.status = DeploymentStatus.FAILED

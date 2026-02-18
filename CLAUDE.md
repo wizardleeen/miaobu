@@ -149,13 +149,16 @@ Value (JSON):
 4. Purge ESA cache for hostname
 5. Trigger `cleanup_old_deployments` (keeps 3 most recent, protects custom-domain-pinned, marks old as `PURGED`)
 
-### Deploy Flow (Python)
-1. Clone repo → install deps to `python_deps/` → zip → upload to OSS → deploy to FC
-2. Write Edge KV entry for `{slug}.metavm.tech` with `type: "python"` and `fc_endpoint`
-3. `deployment_url` is the subdomain URL (not raw FC endpoint)
+### Deploy Flow (Python) — Blue-Green
+1. Clone repo → install deps to `python_deps/` → zip → upload to OSS
+2. Create NEW FC function `miaobu-{slug}-d{deployment_id}` (unique per deploy)
+3. Health check new function (6 attempts, backoff [5,5,10,10,15,15]s)
+4. If healthy: switch Edge KV, update project, delete old function
+5. If unhealthy: mark FAILED, delete broken function, old stays live
+6. `deployment_url` is the subdomain URL (not raw FC endpoint)
 
-### Deploy Flow (Node.js)
-1. Clone repo → install deps → optional build → prune devDeps → zip → upload to OSS → deploy to FC
+### Deploy Flow (Node.js) — Blue-Green
+1. Clone repo → install deps → optional build → prune devDeps → zip → upload to OSS
 2. FC function uses Node.js 20 layer (`NODEJS_LAYER_ARN`) with `custom.debian10` runtime
 3. Bootstrap sets `PATH=/opt/nodejs/bin:$PATH`, `NODE_ENV=production`, `PORT=9000`
 4. Write Edge KV entry for `{slug}.metavm.tech` with `type: "node"` and `fc_endpoint`
@@ -178,6 +181,16 @@ Value (JSON):
 ### Query Ordering
 - Always add explicit `order_by()` to SQLAlchemy queries that return lists. PostgreSQL does not guarantee row order without it.
 - Project list: `order_by(Project.created_at.desc())` — newest first.
+
+### datetime.utcnow() is BANNED
+- PostgreSQL session timezone is Asia/Shanghai (+08:00). `datetime.utcnow()` returns naive datetimes that PG misinterprets as local time → 8-hour offset on `deployed_at`, `verified_at`, etc.
+- **ALWAYS** use `datetime.now(timezone.utc)` (from `datetime import timezone`). This produces timezone-aware datetimes that PG handles correctly.
+- `server_default=func.now()` (used for `created_at`/`updated_at`) is fine — PG's `NOW()` is always correct.
+
+### Self-Hosting Bootstrap Trap
+- Miaobu deploys itself (project `miaobu1`, ID 18). The CURRENTLY RUNNING FC code processes each deployment.
+- When pushing a fix that changes the deploy flow itself, the first deploy runs on the OLD (buggy) code. May need a second push or webhook re-delivery.
+- If a deploy fails during self-hosting, check webhook deliveries: `gh api repos/wizardleeen/miaobu/hooks/596729288/deliveries`
 
 ## Deployment & Operations
 

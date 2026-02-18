@@ -1,0 +1,18 @@
+[Unit]
+Description=Miaobu Deploy Worker
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=leen
+WorkingDirectory=/home/leen/workspace/miaobu
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/leen/workspace/miaobu/venv/bin/python scripts/deploy_worker.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
