@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
-from celery import Celery
-import os
 
 from ...database import get_db
 from ...models import User, Project, Deployment
@@ -11,10 +9,6 @@ from ...core.security import get_current_user
 from ...core.exceptions import NotFoundException, ForbiddenException
 
 router = APIRouter(prefix="/deployments", tags=["Deployments"])
-
-# Initialize Celery client for sending tasks
-REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
-celery_app = Celery('miaobu-worker', broker=REDIS_URL, backend=REDIS_URL)
 
 
 @router.post("", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
@@ -46,18 +40,16 @@ async def create_deployment(
     db.commit()
     db.refresh(deployment)
 
-    # Queue Celery task for building and deploying
+    # Dispatch build via GitHub Actions
     try:
-        task = celery_app.send_task(
-            'tasks.build.build_and_deploy',
-            args=[deployment.id],
-            queue='builds'
-        )
-        deployment.celery_task_id = task.id
-        db.commit()
+        from ...services.github_actions import trigger_build
+        import asyncio
+
+        result = await trigger_build(deployment.project, deployment)
+        if not result["success"]:
+            print(f"Failed to dispatch build: {result['error']}")
     except Exception as e:
-        print(f"Failed to queue build task: {e}")
-        # Don't fail the request, just log the error
+        print(f"Failed to dispatch build: {e}")
 
     return deployment
 

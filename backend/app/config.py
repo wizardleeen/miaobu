@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     # Database
     database_url: str
 
-    # Redis
-    redis_url: str
+    # Redis (legacy — no longer required, kept for .env compatibility)
+    redis_url: str = ""
 
     # Security
     jwt_secret_key: str

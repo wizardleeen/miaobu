@@ -132,7 +132,7 @@ jobs:
 
       - name: Notify uploading
         run: |
-          BODY='{"deployment_id":${{ github.event.client_payload.deployment_id }},"status":"uploading","build_logs":"Build completed in ${build_seconds}s\nUploading to OSS...\n"}'
+          BODY="{\"deployment_id\":${{ github.event.client_payload.deployment_id }},\"status\":\"uploading\",\"build_logs\":\"Build completed in ${build_seconds}s\\nUploading to OSS...\\n\"}"
           .github/scripts/callback.sh "$BODY"
 
       - name: Install oss2
@@ -247,7 +247,7 @@ jobs:
 
       - name: Notify uploading
         run: |
-          BODY='{"deployment_id":${{ github.event.client_payload.deployment_id }},"status":"uploading","build_logs":"Dependencies installed in ${build_seconds}s\nUploading code package to OSS...\n"}'
+          BODY="{\"deployment_id\":${{ github.event.client_payload.deployment_id }},\"status\":\"uploading\",\"build_logs\":\"Dependencies installed in ${build_seconds}s\\nUploading code package to OSS...\\n\"}"
           .github/scripts/callback.sh "$BODY"
 
       - name: Install oss2

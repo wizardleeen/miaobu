@@ -9,8 +9,6 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.6
 httpx==0.26.0
-redis==5.0.1
-celery==5.3.6
 oss2==2.18.4
 aliyun-python-sdk-core==2.14.0
 aliyun-python-sdk-cdn==3.8.8

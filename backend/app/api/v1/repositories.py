@@ -275,8 +275,7 @@ async def import_repository(
         deployment_error = None
         try:
             from ...models import Deployment, DeploymentStatus
-            from celery import Celery
-            import os
+            from ...services.github_actions import trigger_build
 
             # Get latest commit info from GitHub
             try:
@@ -317,23 +316,10 @@ async def import_repository(
             db.commit()
             db.refresh(deployment)
 
-            # Queue Celery task (dispatch by project type)
-            REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
-            celery_app = Celery('miaobu-worker', broker=REDIS_URL, backend=REDIS_URL)
-
-            if project.project_type == "python":
-                task_name = 'tasks.build_python.build_and_deploy_python'
-            else:
-                task_name = 'tasks.build.build_and_deploy'
-
-            task = celery_app.send_task(
-                task_name,
-                args=[deployment.id],
-                queue='builds'
-            )
-
-            deployment.celery_task_id = task.id
-            db.commit()
+            # Dispatch build via GitHub Actions
+            result = await trigger_build(project, deployment)
+            if not result["success"]:
+                raise Exception(result["error"])
 
             deployment_triggered = True
             deployment_id = deployment.id

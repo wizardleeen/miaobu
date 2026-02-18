@@ -139,7 +139,7 @@ class DeploymentResponse(DeploymentBase):
     fc_function_version: Optional[str] = None
     fc_image_uri: Optional[str] = None
     build_time_seconds: Optional[int] = None
-    celery_task_id: Optional[str] = None
+    celery_task_id: Optional[str] = None  # Legacy — kept for old deployment records
     created_at: datetime
     updated_at: datetime
     deployed_at: Optional[datetime] = None
