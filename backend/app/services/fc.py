@@ -299,6 +299,44 @@ class FCService:
             'message': f'Node.js function {name} {action} successfully',
         }
 
+    def _extract_trigger_url(self, response_body) -> Optional[str]:
+        """Extract HTTP trigger URL from various possible response formats."""
+        # Try response.body.http_trigger first
+        http_trigger = getattr(response_body, 'http_trigger', None)
+        if http_trigger:
+            if isinstance(http_trigger, dict):
+                url = http_trigger.get('urlInternet') or http_trigger.get('url_internet')
+                if url:
+                    return url
+            else:
+                url = getattr(http_trigger, 'url_internet', None) or getattr(http_trigger, 'urlInternet', None)
+                if url:
+                    return url
+                # Log what attributes http_trigger has for debugging
+                print(f"FC: http_trigger attrs: {[a for a in dir(http_trigger) if not a.startswith('_')]}")
+
+        # Try response.body directly (some SDK versions put URL here)
+        for attr in ('url_internet', 'urlInternet', 'internet_url'):
+            url = getattr(response_body, attr, None)
+            if url:
+                return url
+
+        # Try treating body as dict
+        if isinstance(response_body, dict):
+            url = (response_body.get('httpTrigger', {}).get('urlInternet')
+                   or response_body.get('http_trigger', {}).get('url_internet'))
+            if url:
+                return url
+
+        # Log body attributes for debugging
+        print(f"FC: response body type={type(response_body).__name__}, "
+              f"attrs={[a for a in dir(response_body) if not a.startswith('_')]}")
+        return None
+
+    def _construct_trigger_url(self, function_name: str) -> str:
+        """Construct the HTTP trigger URL from known components as fallback."""
+        return f"https://{function_name}.{self.account_id}.{self.region}.fcapp.run"
+
     def _ensure_http_trigger(self, function_name: str) -> Optional[str]:
         """
         Ensure an HTTP trigger exists for the function.
@@ -319,13 +357,12 @@ class FCService:
             trigger_request = fc_models.CreateTriggerRequest(body=trigger_input)
             response = self.client.create_trigger(function_name, trigger_request)
 
-            # Extract URL from trigger response
-            http_trigger = response.body.http_trigger
-            if isinstance(http_trigger, dict):
-                return http_trigger.get('urlInternet')
-            elif http_trigger:
-                return getattr(http_trigger, 'url_internet', None)
-            return None
+            url = self._extract_trigger_url(response.body)
+            if url:
+                return url
+            # Trigger was created but URL extraction failed — use fallback
+            print(f"FC: Trigger created for {function_name} but URL extraction failed, using constructed URL")
+            return self._construct_trigger_url(function_name)
 
         except Exception as e:
             if 'TriggerAlreadyExists' in str(e):
@@ -337,12 +374,12 @@ class FCService:
         """Get the HTTP trigger URL for an existing function."""
         try:
             response = self.client.get_trigger(function_name, 'http-trigger')
-            http_trigger = response.body.http_trigger
-            if isinstance(http_trigger, dict):
-                return http_trigger.get('urlInternet')
-            elif http_trigger:
-                return getattr(http_trigger, 'url_internet', None)
-            return None
+            url = self._extract_trigger_url(response.body)
+            if url:
+                return url
+            # Trigger exists but URL extraction failed — use fallback
+            print(f"FC: Trigger exists for {function_name} but URL extraction failed, using constructed URL")
+            return self._construct_trigger_url(function_name)
         except Exception as e:
             print(f"FC: Error getting trigger URL for {function_name}: {e}")
             return None
