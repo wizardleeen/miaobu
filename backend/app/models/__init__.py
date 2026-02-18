@@ -111,7 +111,7 @@ class Project(Base):
 
     # Relationships
     user = relationship("User", back_populates="projects")
-    deployments = relationship("Deployment", back_populates="project", cascade="all, delete-orphan", order_by="Deployment.created_at.desc()")
+    deployments = relationship("Deployment", back_populates="project", cascade="all, delete-orphan", order_by="Deployment.created_at.desc()", foreign_keys="[Deployment.project_id]")
     custom_domains = relationship("CustomDomain", back_populates="project", cascade="all, delete-orphan")
     environment_variables = relationship("EnvironmentVariable", back_populates="project", cascade="all, delete-orphan")
     active_deployment = relationship(
@@ -160,7 +160,7 @@ class Deployment(Base):
     deployed_at = Column(DateTime(timezone=True))
 
     # Relationships
-    project = relationship("Project", back_populates="deployments")
+    project = relationship("Project", back_populates="deployments", foreign_keys=[project_id])
 
     def __repr__(self):
         return f"<Deployment(id={self.id}, project_id={self.project_id}, status={self.status})>"
