@@ -439,8 +439,19 @@ class FCService:
             self.client.create_function(request)
             print(f"FC: Created function {name}")
         except Exception as e:
-            print(f"FC: Error creating function {name}: {e}")
-            return {'success': False, 'error': str(e)}
+            if 'FunctionAlreadyExists' in str(e):
+                # Stale leftover from a previous failed attempt — delete and retry
+                print(f"FC: Function {name} already exists (stale), deleting and recreating...")
+                self.delete_function(name)
+                try:
+                    self.client.create_function(request)
+                    print(f"FC: Recreated function {name}")
+                except Exception as e2:
+                    print(f"FC: Error recreating function {name}: {e2}")
+                    return {'success': False, 'error': str(e2)}
+            else:
+                print(f"FC: Error creating function {name}: {e}")
+                return {'success': False, 'error': str(e)}
 
         endpoint_url = self._ensure_http_trigger(name)
         if not endpoint_url:
@@ -513,8 +524,19 @@ class FCService:
             self.client.create_function(request)
             print(f"FC: Created Node.js function {name}")
         except Exception as e:
-            print(f"FC: Error creating Node.js function {name}: {e}")
-            return {'success': False, 'error': str(e)}
+            if 'FunctionAlreadyExists' in str(e):
+                # Stale leftover from a previous failed attempt — delete and retry
+                print(f"FC: Node.js function {name} already exists (stale), deleting and recreating...")
+                self.delete_function(name)
+                try:
+                    self.client.create_function(request)
+                    print(f"FC: Recreated Node.js function {name}")
+                except Exception as e2:
+                    print(f"FC: Error recreating Node.js function {name}: {e2}")
+                    return {'success': False, 'error': str(e2)}
+            else:
+                print(f"FC: Error creating Node.js function {name}: {e}")
+                return {'success': False, 'error': str(e)}
 
         endpoint_url = self._ensure_http_trigger(name)
         if not endpoint_url:
