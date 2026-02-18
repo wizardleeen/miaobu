@@ -60,6 +60,11 @@ class ApiService {
     return response.data
   }
 
+  async getDashboardStats() {
+    const response = await this.client.get('/projects/stats/dashboard')
+    return response.data
+  }
+
   async getProject(projectId: number) {
     const response = await this.client.get(`/projects/${projectId}`)
     return response.data

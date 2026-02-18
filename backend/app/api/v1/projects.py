@@ -6,6 +6,8 @@ import logging
 import re
 from datetime import datetime, timedelta
 
+from sqlalchemy import func as sa_func
+
 from ...database import get_db
 from ...models import User, Project, Deployment, DeploymentStatus, CustomDomain
 from ...schemas import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithDeployments
@@ -131,6 +133,42 @@ async def list_projects(
     """List all projects for the current user."""
     projects = db.query(Project).filter(Project.user_id == current_user.id).order_by(Project.created_at.desc()).all()
     return projects
+
+
+@router.get("/stats/dashboard")
+async def get_dashboard_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get dashboard statistics for the current user."""
+    user_project_ids = db.query(Project.id).filter(Project.user_id == current_user.id).subquery()
+
+    # Active deployments: projects with at least one DEPLOYED deployment
+    active_deployments = (
+        db.query(sa_func.count(sa_func.distinct(Deployment.project_id)))
+        .filter(
+            Deployment.project_id.in_(user_project_ids),
+            Deployment.status == DeploymentStatus.DEPLOYED,
+        )
+        .scalar()
+    )
+
+    # Builds this month
+    now = datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    builds_this_month = (
+        db.query(sa_func.count(Deployment.id))
+        .filter(
+            Deployment.project_id.in_(user_project_ids),
+            Deployment.created_at >= month_start,
+        )
+        .scalar()
+    )
+
+    return {
+        "active_deployments": active_deployments or 0,
+        "builds_this_month": builds_this_month or 0,
+    }
 
 
 @router.get("/{project_id}", response_model=ProjectWithDeployments)

@@ -11,6 +11,10 @@ export default function DashboardPage() {
     queryKey: ['projects'],
     queryFn: () => api.getProjects(),
   })
+  const { data: stats } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => api.getDashboardStats(),
+  })
 
   return (
     <Layout>
@@ -24,8 +28,8 @@ export default function DashboardPage() {
       <div className="grid md:grid-cols-3 gap-4 mb-8">
         {[
           { icon: Package, label: '项目总数', value: projects?.length || 0, color: 'text-blue-500' },
-          { icon: Rocket, label: '活跃部署', value: 0, color: 'text-emerald-500' },
-          { icon: Activity, label: '本月构建次数', value: 0, color: 'text-amber-500' },
+          { icon: Rocket, label: '活跃部署', value: stats?.active_deployments || 0, color: 'text-emerald-500' },
+          { icon: Activity, label: '本月构建次数', value: stats?.builds_this_month || 0, color: 'text-amber-500' },
         ].map((stat) => (
           <div key={stat.label} className="card p-5">
             <div className="flex items-center gap-3 mb-3">
