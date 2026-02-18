@@ -601,9 +601,10 @@ class BuildDetector:
         if not detected_framework:
             return None
 
-        # Determine start command: prefer scripts.start -> "npm start" over hardcoded
+        # Determine start command: prefer the actual value from scripts.start
+        # (not "npm start" — npm doesn't work reliably in FC layer environment)
         if scripts.get("start"):
-            start_command = "npm start"
+            start_command = scripts["start"]
         else:
             start_command = framework_config["start_command"]
 

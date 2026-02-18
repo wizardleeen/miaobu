@@ -207,11 +207,17 @@ class FCService:
         )
 
         # Normalize the start command to use the layer's Node.js
+        # npm/npx scripts have broken relative requires in the layer,
+        # so route them through node + npm-cli.js directly
         normalized_cmd = start_command
-        for tool in ('node', 'npm', 'npx'):
-            if normalized_cmd.startswith(tool + ' ') or normalized_cmd == tool:
-                normalized_cmd = f'/opt/nodejs/bin/{normalized_cmd}'
-                break
+        if normalized_cmd.startswith('npm ') or normalized_cmd == 'npm':
+            npm_args = normalized_cmd[4:] if normalized_cmd.startswith('npm ') else ''
+            normalized_cmd = f'/opt/nodejs/bin/node /opt/nodejs/lib/node_modules/npm/bin/npm-cli.js {npm_args}'.strip()
+        elif normalized_cmd.startswith('npx '):
+            npx_args = normalized_cmd[4:]
+            normalized_cmd = f'/opt/nodejs/bin/node /opt/nodejs/lib/node_modules/npm/bin/npx-cli.js {npx_args}'
+        elif normalized_cmd.startswith('node ') or normalized_cmd == 'node':
+            normalized_cmd = f'/opt/nodejs/bin/{normalized_cmd}'
 
         # Bootstrap: set PATH for layer's Node.js binaries
         bootstrap_cmd = (

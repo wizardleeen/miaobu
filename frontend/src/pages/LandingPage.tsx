@@ -36,7 +36,7 @@ export default function LandingPage() {
             一键部署你的项目
             <br />
             <span className="bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">
-              前端 & Node.js & Python 后端
+              前端与后端全栈支持
             </span>
           </h1>
           <p className="text-xl text-[--text-secondary] mb-10 max-w-2xl mx-auto">
