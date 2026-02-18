@@ -384,7 +384,7 @@ async def delete_project(
             settings = get_settings()
             fc_oss_service = OSSService(
                 bucket_name=settings.aliyun_fc_oss_bucket,
-                endpoint=settings.aliyun_oss_endpoint,
+                endpoint=settings.aliyun_fc_oss_endpoint,
             )
             fc_oss_service.delete_directory(f"projects/{project.slug}/")
         except Exception as e:

@@ -253,7 +253,7 @@ def cleanup_old_deployments(
     if is_fc:
         fc_oss_service = OSSService(
             bucket_name=settings.aliyun_fc_oss_bucket,
-            endpoint=settings.aliyun_oss_endpoint,
+            endpoint=settings.aliyun_fc_oss_endpoint,
         )
 
     deleted_count = 0
@@ -346,7 +346,7 @@ def rollback_to_deployment(
         # Verify the package still exists
         fc_oss_service = OSSService(
             bucket_name=settings.aliyun_fc_oss_bucket,
-            endpoint=settings.aliyun_oss_endpoint,
+            endpoint=settings.aliyun_fc_oss_endpoint,
         )
         if not fc_oss_service.object_exists(oss_key):
             return {"success": False, "error": "Deployment package no longer exists in storage"}
