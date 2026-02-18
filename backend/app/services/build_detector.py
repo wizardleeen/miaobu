@@ -599,7 +599,29 @@ class BuildDetector:
                 break
 
         if not detected_framework:
-            return None
+            # Fallback: detect plain Node.js server (no framework)
+            # If scripts.start looks like a server command and there are no
+            # frontend framework indicators, treat as node backend
+            start_script = scripts.get("start", "")
+            has_frontend_framework = any(
+                indicator in all_deps
+                for config in BuildDetector.FRAMEWORK_PATTERNS.values()
+                for indicator in config["indicators"]
+            )
+            is_server_start = (
+                start_script.startswith("node ")
+                or start_script.startswith("ts-node ")
+                or start_script.startswith("nodemon ")
+                or "server" in start_script.lower()
+            )
+            if is_server_start and not has_frontend_framework:
+                detected_framework = "node"
+                framework_config = {
+                    "start_command": start_script,
+                    "framework": "node",
+                }
+            else:
+                return None
 
         # Determine start command: prefer the actual value from scripts.start
         # (not "npm start" — npm doesn't work reliably in FC layer environment)
