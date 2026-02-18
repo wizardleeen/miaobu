@@ -13,10 +13,17 @@ from ...api.v1.projects import generate_slug
 from ...config import get_settings
 
 
+class EnvVarInput(BaseModel):
+    key: str
+    value: str
+    is_secret: bool = False
+
+
 class ImportRepositoryRequest(BaseModel):
     branch: Optional[str] = None
     root_directory: Optional[str] = None
     custom_config: Optional[Dict[str, Any]] = None
+    environment_variables: Optional[List[EnvVarInput]] = None
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
 
@@ -232,6 +239,21 @@ async def import_repository(
         db.add(project)
         db.commit()
         db.refresh(project)
+
+        # Create environment variables if provided
+        if body.environment_variables:
+            from ...models import EnvironmentVariable
+            from ...services.encryption import encrypt_value
+
+            for env_input in body.environment_variables:
+                env_var = EnvironmentVariable(
+                    project_id=project.id,
+                    key=env_input.key,
+                    value=encrypt_value(env_input.value),
+                    is_secret=env_input.is_secret,
+                )
+                db.add(env_var)
+            db.commit()
 
         # Note: CDN subdomains work automatically via wildcard domain (*.metavm.tech)
         # No per-project CDN configuration needed!

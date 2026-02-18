@@ -132,11 +132,12 @@ class ApiService {
     return response.data
   }
 
-  async importRepository(owner: string, repo: string, branch?: string, rootDirectory?: string, customConfig?: any) {
+  async importRepository(owner: string, repo: string, branch?: string, rootDirectory?: string, customConfig?: any, environmentVariables?: { key: string; value: string; is_secret: boolean }[]) {
     const response = await this.client.post(`/repositories/${owner}/${repo}/import`, {
       branch,
       root_directory: rootDirectory,
       custom_config: customConfig,
+      environment_variables: environmentVariables?.length ? environmentVariables : undefined,
     })
     return response.data
   }

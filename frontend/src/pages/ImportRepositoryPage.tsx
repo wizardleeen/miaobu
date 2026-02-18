@@ -3,7 +3,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
 import Layout from '../components/Layout'
-import { Search, ArrowLeft, AlertTriangle, Check, X } from 'lucide-react'
+import { Search, ArrowLeft, AlertTriangle, Check, X, Plus, Trash2, Lock } from 'lucide-react'
 
 interface Repository {
   id: number
@@ -26,6 +26,13 @@ export default function ImportRepositoryPage() {
   const [analysis, setAnalysis] = useState<any>(null)
   const [customConfig, setCustomConfig] = useState<any>(null)
   const [rootDirectory, setRootDirectory] = useState('')
+  const [envVars, setEnvVars] = useState<{ key: string; value: string; is_secret: boolean }[]>([])
+  const [envKey, setEnvKey] = useState('')
+  const [envValue, setEnvValue] = useState('')
+  const [envIsSecret, setEnvIsSecret] = useState(false)
+  const [envBulkMode, setEnvBulkMode] = useState(false)
+  const [envBulkText, setEnvBulkText] = useState('')
+  const [envBulkIsSecret, setEnvBulkIsSecret] = useState(false)
 
   const { data: reposData, isLoading } = useQuery({
     queryKey: ['repositories', search],
@@ -33,8 +40,8 @@ export default function ImportRepositoryPage() {
   })
 
   const importMutation = useMutation({
-    mutationFn: ({ owner, repo, branch, rootDir, config }: any) =>
-      api.importRepository(owner, repo, branch, rootDir, config),
+    mutationFn: ({ owner, repo, branch, rootDir, config, envVars: ev }: any) =>
+      api.importRepository(owner, repo, branch, rootDir, config, ev),
     onSuccess: (data) => {
       navigate(`/projects/${data.project.id}`)
     },
@@ -74,6 +81,42 @@ export default function ImportRepositoryPage() {
     }
   }
 
+  const parseBulkEnvText = (text: string): { key: string; value: string }[] => {
+    return text
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith('#'))
+      .map(line => {
+        const eqIndex = line.indexOf('=')
+        if (eqIndex === -1) return null
+        const key = line.slice(0, eqIndex).trim()
+        const value = line.slice(eqIndex + 1).trim()
+        if (!key) return null
+        return { key, value }
+      })
+      .filter((item): item is { key: string; value: string } => item !== null)
+  }
+
+  const handleAddEnvVar = () => {
+    if (!envKey.trim() || !envValue.trim()) return
+    if (envVars.some(v => v.key === envKey.trim())) return
+    setEnvVars([...envVars, { key: envKey.trim(), value: envValue, is_secret: envIsSecret }])
+    setEnvKey('')
+    setEnvValue('')
+    setEnvIsSecret(false)
+  }
+
+  const handleBulkAddEnvVars = () => {
+    const entries = parseBulkEnvText(envBulkText)
+    if (entries.length === 0) return
+    const existingKeys = new Set(envVars.map(v => v.key))
+    const newVars = entries
+      .filter(e => !existingKeys.has(e.key))
+      .map(e => ({ ...e, is_secret: envBulkIsSecret }))
+    setEnvVars([...envVars, ...newVars])
+    setEnvBulkText('')
+  }
+
   const handleImport = () => {
     if (!selectedRepo || !analysis) return
 
@@ -84,6 +127,7 @@ export default function ImportRepositoryPage() {
       branch: selectedRepo.default_branch,
       rootDir: customConfig?.root_directory || '',
       config: customConfig,
+      envVars,
     })
   }
 
@@ -445,6 +489,149 @@ export default function ImportRepositoryPage() {
                     </div>
                   </div>
                 )}
+
+                {/* Environment Variables */}
+                <div className="card p-5">
+                  <h2 className="text-sm font-semibold text-[--text-primary] mb-1">环境变量</h2>
+                  <p className="text-xs text-[--text-secondary] mb-4">
+                    为首次构建配置环境变量（可选）。导入后也可在项目设置中管理。
+                  </p>
+
+                  {envVars.length > 0 && (
+                    <div className="space-y-1.5 mb-4">
+                      {envVars.map((env, idx) => (
+                        <div key={idx} className="flex items-center gap-2 p-3 bg-[--bg-tertiary] rounded-lg">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-sm font-medium text-[--text-primary]">{env.key}</span>
+                              {env.is_secret && (
+                                <span className="badge-warning">
+                                  <Lock size={10} />
+                                  敏感
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-mono text-xs text-[--text-secondary] truncate mt-0.5">
+                              {env.is_secret ? '••••••••' : env.value}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEnvVars(envVars.filter((_, i) => i !== idx))}
+                            className="p-1.5 rounded-lg text-[--text-tertiary] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors shrink-0"
+                            title="删除"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="border border-[--border-primary] rounded-lg p-4 bg-[--bg-elevated]">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-semibold text-[--text-primary] flex items-center gap-1.5">
+                        <Plus size={14} />
+                        添加环境变量
+                      </h3>
+                      <div className="flex bg-[--bg-tertiary] rounded-lg p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setEnvBulkMode(false)}
+                          className={`px-3 py-1 text-xs rounded-md transition-colors ${!envBulkMode ? 'bg-[--bg-elevated] shadow-sm text-[--text-primary]' : 'text-[--text-tertiary] hover:text-[--text-secondary]'}`}
+                        >
+                          单个添加
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEnvBulkMode(true)}
+                          className={`px-3 py-1 text-xs rounded-md transition-colors ${envBulkMode ? 'bg-[--bg-elevated] shadow-sm text-[--text-primary]' : 'text-[--text-tertiary] hover:text-[--text-secondary]'}`}
+                        >
+                          批量粘贴
+                        </button>
+                      </div>
+                    </div>
+
+                    {!envBulkMode ? (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-[--text-tertiary] mb-1">变量名</label>
+                            <input
+                              type="text"
+                              className="input font-mono text-sm"
+                              placeholder="例如: VITE_API_URL"
+                              value={envKey}
+                              onChange={(e) => setEnvKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-[--text-tertiary] mb-1">值</label>
+                            <input
+                              type="text"
+                              className="input font-mono text-sm"
+                              placeholder="变量值"
+                              value={envValue}
+                              onChange={(e) => setEnvValue(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between mt-3">
+                          <label className="flex items-center gap-2 text-xs text-[--text-secondary]">
+                            <input
+                              type="checkbox"
+                              checked={envIsSecret}
+                              onChange={(e) => setEnvIsSecret(e.target.checked)}
+                              className="rounded border-[--border-secondary]"
+                            />
+                            <span>标记为敏感值（值将被隐藏）</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleAddEnvVar}
+                            className="btn-primary text-xs"
+                            disabled={!envKey.trim() || !envValue.trim()}
+                          >
+                            添加
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <textarea
+                          className="input font-mono text-sm h-32 resize-y"
+                          placeholder={"粘贴 KEY=VALUE 格式的环境变量，每行一个，例如：\nVITE_API_URL=https://api.example.com\nNEXT_PUBLIC_KEY=pk_xxxxx\n\n# 以 # 开头的行会被忽略"}
+                          value={envBulkText}
+                          onChange={(e) => setEnvBulkText(e.target.value)}
+                        />
+                        {envBulkText && (
+                          <p className="text-xs text-[--text-tertiary] mt-1">
+                            已识别 {parseBulkEnvText(envBulkText).length} 个变量
+                          </p>
+                        )}
+                        <div className="flex items-center justify-between mt-3">
+                          <label className="flex items-center gap-2 text-xs text-[--text-secondary]">
+                            <input
+                              type="checkbox"
+                              checked={envBulkIsSecret}
+                              onChange={(e) => setEnvBulkIsSecret(e.target.checked)}
+                              className="rounded border-[--border-secondary]"
+                            />
+                            <span>全部标记为敏感值</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleBulkAddEnvVars}
+                            className="btn-primary text-xs"
+                            disabled={!envBulkText.trim()}
+                          >
+                            批量添加
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
 
                 {/* Import Button */}
                 <div className="flex justify-end gap-3">
