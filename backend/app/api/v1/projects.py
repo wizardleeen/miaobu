@@ -1,14 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+import json
+import logging
 import re
+from datetime import datetime
 
 from ...database import get_db
-from ...models import User, Project
+from ...models import User, Project, Deployment, DeploymentStatus, CustomDomain
 from ...schemas import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithDeployments
 from ...core.security import get_current_user
 from ...core.exceptions import NotFoundException, ForbiddenException, ConflictException
 from ...config import get_settings
+from ...services.esa import ESAService
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -136,6 +140,88 @@ async def get_project_by_slug(
     return project
 
 
+logger = logging.getLogger(__name__)
+
+
+def _refresh_edge_kv_on_spa_change(project: Project, db: Session) -> None:
+    """Update Edge KV entries and purge CDN cache when is_spa changes."""
+    settings = get_settings()
+    esa_service = ESAService()
+    subdomain = f"{project.slug}.{settings.cdn_base_domain}"
+
+    # Find the latest deployed deployment for KV values
+    latest = (
+        db.query(Deployment)
+        .filter(
+            Deployment.project_id == project.id,
+            Deployment.status == DeploymentStatus.DEPLOYED,
+        )
+        .order_by(Deployment.deployed_at.desc())
+        .first()
+    )
+    if not latest:
+        return
+
+    # Collect all hostnames to update
+    hostnames = [subdomain]
+    custom_domains = (
+        db.query(CustomDomain)
+        .filter(
+            CustomDomain.project_id == project.id,
+            CustomDomain.is_verified == True,
+        )
+        .all()
+    )
+    for cd in custom_domains:
+        hostnames.append(cd.domain)
+
+    # Build KV value template
+    def make_kv(hostname: str, deployment: Deployment) -> str:
+        oss_path = f"projects/{project.slug}/{deployment.id}"
+        return json.dumps({
+            "type": "static",
+            "oss_path": oss_path,
+            "is_spa": project.is_spa,
+            "project_slug": project.slug,
+            "deployment_id": deployment.id,
+            "commit_sha": deployment.commit_sha,
+            "updated_at": datetime.utcnow().isoformat(),
+        })
+
+    # Update subdomain KV
+    result = esa_service.put_edge_kv(subdomain, make_kv(subdomain, latest))
+    if result["success"]:
+        logger.info(f"Edge KV updated for {subdomain} (is_spa={project.is_spa})")
+    else:
+        logger.warning(f"Edge KV update failed for {subdomain}: {result.get('error')}")
+
+    # Update custom domain KVs (each may have its own pinned deployment)
+    for cd in custom_domains:
+        dep = latest
+        if cd.active_deployment_id and cd.active_deployment_id != latest.id:
+            pinned = db.query(Deployment).filter(
+                Deployment.id == cd.active_deployment_id,
+                Deployment.status == DeploymentStatus.DEPLOYED,
+            ).first()
+            if pinned:
+                dep = pinned
+        result = esa_service.put_edge_kv(cd.domain, make_kv(cd.domain, dep))
+        if result["success"]:
+            logger.info(f"Edge KV updated for {cd.domain} (is_spa={project.is_spa})")
+        else:
+            logger.warning(f"Edge KV update failed for {cd.domain}: {result.get('error')}")
+
+    # Purge CDN cache for all affected hostnames
+    try:
+        purge_result = esa_service.purge_host_cache(hostnames)
+        if purge_result.get("success"):
+            logger.info(f"CDN cache purged for {', '.join(hostnames)}")
+        else:
+            logger.warning(f"CDN cache purge failed: {purge_result.get('error')}")
+    except Exception as e:
+        logger.warning(f"CDN cache purge failed: {e}")
+
+
 @router.patch("/{project_id}", response_model=ProjectResponse)
 async def update_project(
     project_id: int,
@@ -154,11 +240,16 @@ async def update_project(
 
     # Update fields if provided
     update_data = project_data.model_dump(exclude_unset=True)
+    is_spa_changed = "is_spa" in update_data and update_data["is_spa"] != project.is_spa
     for field, value in update_data.items():
         setattr(project, field, value)
 
     db.commit()
     db.refresh(project)
+
+    # When is_spa changes, update Edge KV entries and purge CDN cache
+    if is_spa_changed and project.project_type != "python":
+        _refresh_edge_kv_on_spa_change(project, db)
 
     return project
 

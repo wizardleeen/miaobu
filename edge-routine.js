@@ -45,7 +45,7 @@ export default {
             console.error(`[Miaobu] Static mapping missing oss_path:`, mapping);
             return new Response('Invalid mapping: missing oss_path', { status: 500 });
           }
-          return rewriteToOSS(request, url, mapping.oss_path, mapping.is_spa !== false);
+          return rewriteToOSS(request, url, mapping.oss_path, mapping.is_spa === true);
         }
       }
 
