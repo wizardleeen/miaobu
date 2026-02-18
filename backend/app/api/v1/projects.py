@@ -13,6 +13,7 @@ from ...core.security import get_current_user
 from ...core.exceptions import NotFoundException, ForbiddenException, ConflictException
 from ...config import get_settings
 from ...services.esa import ESAService
+from ...services.oss import OSSService
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -299,8 +300,38 @@ async def delete_project(
     if project.user_id != current_user.id:
         raise ForbiddenException("You don't have access to this project")
 
-    # TODO: Delete webhook from GitHub
-    # TODO: Clean up OSS files
+    settings = get_settings()
+    esa_service = ESAService()
+
+    # Clean up custom domain ESA resources (SaaS managers + Edge KV)
+    custom_domains = (
+        db.query(CustomDomain)
+        .filter(
+            CustomDomain.project_id == project.id,
+            CustomDomain.is_verified == True,
+        )
+        .all()
+    )
+    for cd in custom_domains:
+        try:
+            if cd.esa_saas_id:
+                esa_service.delete_saas_manager(cd.esa_saas_id)
+            esa_service.delete_edge_kv(cd.domain)
+        except Exception as e:
+            logger.warning(f"Failed to clean up domain {cd.domain}: {e}")
+
+    # Delete subdomain Edge KV
+    try:
+        esa_service.delete_edge_kv(f"{project.slug}.{settings.cdn_base_domain}")
+    except Exception as e:
+        logger.warning(f"Failed to delete subdomain Edge KV: {e}")
+
+    # Delete all OSS files for the project
+    try:
+        oss_service = OSSService()
+        oss_service.delete_directory(f"projects/{project.slug}/")
+    except Exception as e:
+        logger.warning(f"Failed to delete OSS files: {e}")
 
     # Clean up FC function for Python projects
     if project.project_type == "python" and project.fc_function_name:
@@ -309,7 +340,7 @@ async def delete_project(
             fc_service = FCService()
             fc_service.delete_function(project.fc_function_name)
         except Exception as e:
-            print(f"Warning: Failed to delete FC function {project.fc_function_name}: {e}")
+            logger.warning(f"Failed to delete FC function {project.fc_function_name}: {e}")
 
     db.delete(project)
     db.commit()
