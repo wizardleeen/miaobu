@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import {
@@ -17,7 +17,16 @@ import {
   X,
   Lightbulb,
   Shield,
+  Info,
 } from 'lucide-react'
+
+type ToastType = 'success' | 'error' | 'warning' | 'info'
+interface Toast {
+  id: number
+  message: string
+  type: ToastType
+  leaving: boolean
+}
 
 interface DomainsManagementProps {
   projectId: number
@@ -33,6 +42,20 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
   const [showDeployments, setShowDeployments] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [refreshingSSL, setRefreshingSSL] = useState(false)
+  const [toasts, setToasts] = useState<Toast[]>([])
+  const toastIdRef = useRef(0)
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts(prev => prev.map(t => t.id === id ? { ...t, leaving: true } : t))
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 200)
+  }, [])
+
+  const toast = useCallback((message: string, type: ToastType = 'info') => {
+    const id = ++toastIdRef.current
+    setToasts(prev => [...prev, { id, message, type, leaving: false }])
+    const duration = type === 'error' || type === 'warning' ? 6000 : 4000
+    setTimeout(() => dismissToast(id), duration)
+  }, [dismissToast])
 
   const copyToClipboard = async (text: string, fieldName: string) => {
     try {
@@ -41,7 +64,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
       setTimeout(() => setCopiedField(null), 2000)
     } catch (error) {
       console.error('Failed to copy:', error)
-      alert('复制到剪贴板失败')
+      toast('复制到剪贴板失败', 'error')
     }
   }
 
@@ -97,7 +120,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['domains', projectId] })
       queryClient.invalidateQueries({ queryKey: ['domain-deployments', selectedDomain?.id] })
-      alert('部署已成功上线！变更将在约30秒内生效。')
+      toast('部署已成功上线！变更将在约30秒内生效。', 'success')
     },
   })
 
@@ -147,18 +170,22 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
     const result = await verifyMutation.mutateAsync(domainId)
 
     if (result.verified) {
-      alert('域名验证成功！SSL 证书将自动配置。')
+      if (result.icp_required) {
+        toast(result.message, 'warning')
+      } else {
+        toast('域名验证成功！SSL 证书将自动配置。', 'success')
+      }
       setShowInstructions(false)
       setSelectedDomain(null)
     } else {
-      alert(`验证失败：${result.message}`)
+      toast(`验证失败：${result.message}`, 'error')
     }
   }
 
   const handleCheckDNS = async (domainId: number) => {
     const status = await api.checkDomainDNS(domainId)
     setDnsStatus(status)
-    alert('DNS 状态已更新。请查看下方状态信息。')
+    toast('DNS 状态已更新。请查看下方状态信息。', 'info')
   }
 
   const handlePromoteDeployment = (deploymentId: number) => {
@@ -180,16 +207,16 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
       settings: { auto_update_enabled: enabled },
     })
     setSelectedDomain((prev: any) => prev ? { ...prev, auto_update_enabled: enabled } : prev)
-    alert(enabled ? '自动部署已启用' : '自动部署已禁用')
+    toast(enabled ? '自动部署已启用' : '自动部署已禁用', 'success')
   }
 
   const handleSyncEdgeKV = async (domainId: number) => {
     try {
       await api.syncEdgeKV(domainId)
       queryClient.invalidateQueries({ queryKey: ['domains', projectId] })
-      alert('边缘配置同步成功')
+      toast('边缘配置同步成功', 'success')
     } catch (error: any) {
-      alert(`同步失败：${error.response?.data?.detail || error.message}`)
+      toast(`同步失败：${error.response?.data?.detail || error.message}`, 'error')
     }
   }
 
@@ -200,14 +227,14 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
       queryClient.invalidateQueries({ queryKey: ['domains', projectId] })
 
       if (result.is_https_ready) {
-        alert('HTTPS 已就绪！您的网站现在可以通过 HTTPS 访问。')
+        toast('HTTPS 已就绪！您的网站现在可以通过 HTTPS 访问。', 'success')
       } else {
         const statusText = result.ssl_status === 'issuing' ? '签发中' :
                           result.ssl_status === 'verifying' ? '验证中' : '待处理'
-        alert(`SSL 状态：${statusText}。证书仍在配置中。`)
+        toast(`SSL 状态：${statusText}。证书仍在配置中。`, 'info')
       }
     } catch (error: any) {
-      alert(`刷新 SSL 状态失败：${error.response?.data?.detail || error.message}`)
+      toast(`刷新 SSL 状态失败：${error.response?.data?.detail || error.message}`, 'error')
     } finally {
       setRefreshingSSL(false)
     }
@@ -503,11 +530,22 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                 <p className="text-xs text-[--text-secondary] mb-3">
                   SSL 证书将在域名验证后自动配置和管理。HTTPS 将在域名验证后几分钟内可用。
                 </p>
+                {selectedDomain.esa_status === 'pending' && (
+                  <div className="mb-3 p-2.5 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-lg text-red-700 dark:text-red-400 text-xs flex items-start gap-2">
+                    <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-medium">需要 ICP 备案</div>
+                      <div className="mt-0.5">该域名需要完成 ICP 备案后才能正常使用。请前往 <a href="https://beian.aliyun.com" target="_blank" rel="noopener noreferrer" className="underline font-medium">阿里云备案系统</a> 完成备案，备案通过后 SSL 证书将自动签发。</div>
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="text-[--text-secondary]">边缘加速状态：</span>
                     {selectedDomain.esa_status === 'online' ? (
                       <span className="badge-success"><CheckCircle2 size={11} />在线</span>
+                    ) : selectedDomain.esa_status === 'pending' ? (
+                      <span className="badge-error"><AlertTriangle size={11} />需要备案</span>
                     ) : (
                       <span className="badge-warning"><Clock size={11} />配置中</span>
                     )}
@@ -705,6 +743,52 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
         </div>
       )}
 
+      {/* Toast Notifications */}
+      {toasts.length > 0 && (
+        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+          {toasts.map((t) => {
+            const styles = {
+              success: {
+                bg: 'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800',
+                text: 'text-emerald-800 dark:text-emerald-200',
+                icon: <CheckCircle2 size={16} className="text-emerald-500 dark:text-emerald-400 flex-shrink-0" />,
+              },
+              error: {
+                bg: 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800',
+                text: 'text-red-800 dark:text-red-200',
+                icon: <AlertTriangle size={16} className="text-red-500 dark:text-red-400 flex-shrink-0" />,
+              },
+              warning: {
+                bg: 'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800',
+                text: 'text-amber-800 dark:text-amber-200',
+                icon: <AlertTriangle size={16} className="text-amber-500 dark:text-amber-400 flex-shrink-0" />,
+              },
+              info: {
+                bg: 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800',
+                text: 'text-blue-800 dark:text-blue-200',
+                icon: <Info size={16} className="text-blue-500 dark:text-blue-400 flex-shrink-0" />,
+              },
+            }[t.type]
+            return (
+              <div
+                key={t.id}
+                className={`${styles.bg} ${t.leaving ? 'animate-toast-out' : 'animate-toast-in'} border rounded-lg p-3 shadow-lg flex items-start gap-2.5`}
+              >
+                {styles.icon}
+                <span className={`${styles.text} text-sm leading-snug flex-1`}>{t.message}</span>
+                <button
+                  type="button"
+                  onClick={() => dismissToast(t.id)}
+                  className={`${styles.text} opacity-50 hover:opacity-100 flex-shrink-0 mt-0.5`}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* Domains List */}
       <div className="space-y-3">
         {domains && domains.length > 0 ? (
@@ -719,6 +803,9 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                       <span className="badge-success"><CheckCircle2 size={11} />已验证</span>
                     ) : (
                       <span className="badge-warning"><Clock size={11} />待验证</span>
+                    )}
+                    {domain.is_verified && domain.esa_status === 'pending' && (
+                      <span className="badge-error"><AlertTriangle size={10} />需要 ICP 备案</span>
                     )}
                     {domain.ssl_status === 'active' && (
                       <span className="badge-success"><Lock size={10} />HTTPS</span>

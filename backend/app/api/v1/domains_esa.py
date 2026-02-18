@@ -220,7 +220,7 @@ async def verify_custom_domain(
         return {
             "success": False,
             "verified": False,
-            "message": f"ESA provisioning failed: {provision_result.get('message')}",
+            "message": f"ESA provisioning failed: {provision_result.get('error')}",
             "error": provision_result.get('error')
         }
 
@@ -282,7 +282,7 @@ async def verify_custom_domain(
         response["ssl_note"] = "SSL certificate is being provisioned by Aliyun ESA. This may take 5-30 minutes. Use the 'Refresh SSL Status' button to check progress."
 
     if icp_required:
-        response["message"] = "Domain configured but ICP filing is required for domains serving users in mainland China."
+        response["message"] = "域名已配置，但该域名需要完成 ICP 备案才能正常使用。请前往 beian.aliyun.com 完成备案。"
         response["icp_required"] = True
         response["icp_filing_url"] = "https://beian.aliyun.com"
         response["instructions"] = {

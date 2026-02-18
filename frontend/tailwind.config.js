@@ -46,11 +46,21 @@ export default {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.5' },
         },
+        'toast-in': {
+          from: { opacity: '0', transform: 'translateY(-8px) scale(0.96)' },
+          to: { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        'toast-out': {
+          from: { opacity: '1', transform: 'translateY(0) scale(1)' },
+          to: { opacity: '0', transform: 'translateY(-8px) scale(0.96)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 0.2s ease-out',
         'slide-in': 'slide-in 0.2s ease-out',
         'pulse-dot': 'pulse-dot 2s ease-in-out infinite',
+        'toast-in': 'toast-in 0.25s ease-out forwards',
+        'toast-out': 'toast-out 0.2s ease-in forwards',
       },
     },
   },
