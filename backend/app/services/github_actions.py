@@ -4,6 +4,7 @@ GitHub Actions dispatch service.
 Triggers repository_dispatch events on the miaobu repo to start builds
 via GitHub Actions instead of the local Celery worker.
 """
+import json
 import httpx
 from typing import Dict, Any
 
@@ -31,6 +32,19 @@ async def trigger_build(project: Project, deployment: Deployment) -> Dict[str, A
     if not settings.github_pat:
         return {"success": False, "error": "github_pat not configured"}
 
+    # GitHub limits client_payload to 10 properties.
+    # Pack build config into a single JSON string.
+    build_config = json.dumps({
+        "install_command": project.install_command or "npm install",
+        "build_command": project.build_command or "npm run build",
+        "output_directory": project.output_directory or "dist",
+        "node_version": project.node_version or "18",
+        "root_directory": project.root_directory or "",
+        "is_spa": project.is_spa,
+        "python_version": project.python_version or "3.10",
+        "start_command": project.start_command or "",
+    })
+
     payload = {
         "event_type": "miaobu-build",
         "client_payload": {
@@ -40,16 +54,7 @@ async def trigger_build(project: Project, deployment: Deployment) -> Dict[str, A
             "branch": deployment.branch,
             "commit_sha": deployment.commit_sha,
             "project_slug": project.slug,
-            # Static build config
-            "install_command": project.install_command or "npm install",
-            "build_command": project.build_command or "npm run build",
-            "output_directory": project.output_directory or "dist",
-            "node_version": project.node_version or "18",
-            "root_directory": project.root_directory or "",
-            "is_spa": project.is_spa,
-            # Python build config
-            "python_version": project.python_version or "3.10",
-            "start_command": project.start_command or "",
+            "build_config": build_config,
         },
     }
 

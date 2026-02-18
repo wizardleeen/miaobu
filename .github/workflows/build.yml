@@ -19,6 +19,18 @@ jobs:
       - name: Checkout miaobu (for scripts)
         uses: actions/checkout@v4
 
+      - name: Parse build config
+        id: cfg
+        run: |
+          echo '${{ github.event.client_payload.build_config }}' | python3 -c "
+          import json, sys, os
+          cfg = json.load(sys.stdin)
+          out = os.environ['GITHUB_OUTPUT']
+          with open(out, 'a') as f:
+              for k, v in cfg.items():
+                  f.write(f'{k}={v}\n')
+          "
+
       - name: Fetch clone token
         id: clone
         run: |
@@ -66,7 +78,7 @@ jobs:
 
       - name: Detect package manager
         id: pm
-        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
         run: |
           if [ -f "pnpm-lock.yaml" ]; then
             echo "manager=pnpm" >> "$GITHUB_OUTPUT"
@@ -79,7 +91,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ github.event.client_payload.node_version }}
+          node-version: ${{ steps.cfg.outputs.node_version }}
 
       - name: Setup pnpm
         if: steps.pm.outputs.manager == 'pnpm'
@@ -88,27 +100,27 @@ jobs:
           version: latest
 
       - name: Install dependencies
-        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
         run: |
           echo "=== Installing dependencies ==="
-          ${{ github.event.client_payload.install_command }} 2>&1 | tail -20
+          ${{ steps.cfg.outputs.install_command }} 2>&1 | tail -20
           echo "=== Install complete ==="
 
       - name: Build
-        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
         run: |
           echo "=== Running build ==="
           START=$(date +%s)
-          ${{ github.event.client_payload.build_command }} 2>&1
+          ${{ steps.cfg.outputs.build_command }} 2>&1
           END=$(date +%s)
           echo "build_seconds=$((END - START))" >> "$GITHUB_ENV"
           echo "=== Build complete ($((END - START))s) ==="
 
       - name: Verify output
         id: verify
-        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
         run: |
-          OUTPUT_DIR="${{ github.event.client_payload.output_directory }}"
+          OUTPUT_DIR="${{ steps.cfg.outputs.output_directory }}"
           if [ ! -d "$OUTPUT_DIR" ]; then
             echo "ERROR: Output directory '$OUTPUT_DIR' not found"
             ls -la
@@ -162,6 +174,18 @@ jobs:
       - name: Checkout miaobu (for scripts)
         uses: actions/checkout@v4
 
+      - name: Parse build config
+        id: cfg
+        run: |
+          echo '${{ github.event.client_payload.build_config }}' | python3 -c "
+          import json, sys, os
+          cfg = json.load(sys.stdin)
+          out = os.environ['GITHUB_OUTPUT']
+          with open(out, 'a') as f:
+              for k, v in cfg.items():
+                  f.write(f'{k}={v}\n')
+          "
+
       - name: Fetch clone token
         id: clone
         run: |
@@ -194,7 +218,7 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
         run: |
           echo "=== Installing Python dependencies ==="
           START=$(date +%s)
@@ -211,7 +235,7 @@ jobs:
 
       - name: Create code package
         id: package
-        working-directory: user-repo/${{ github.event.client_payload.root_directory }}
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
         run: |
           COMMIT_TAG=$(echo "${{ github.event.client_payload.commit_sha }}" | cut -c1-12)
           ZIP_NAME="${{ github.event.client_payload.project_slug }}-${COMMIT_TAG}.zip"
