@@ -4,7 +4,7 @@ from typing import List
 import json
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func as sa_func
 
@@ -55,7 +55,7 @@ STALE_DEPLOYMENT_MINUTES = 20  # GHA timeout is 15 min
 
 def _fail_stale_deployments(project_id: int, db: Session) -> None:
     """Mark deployments stuck in pre-deployed states as FAILED."""
-    cutoff = datetime.utcnow() - timedelta(minutes=STALE_DEPLOYMENT_MINUTES)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=STALE_DEPLOYMENT_MINUTES)
     stale = (
         db.query(Deployment)
         .filter(
@@ -160,7 +160,7 @@ async def get_dashboard_stats(
     )
 
     # Builds this month
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     builds_this_month = (
         db.query(sa_func.count(Deployment.id))
@@ -260,7 +260,7 @@ def _refresh_edge_kv_on_spa_change(project: Project, db: Session) -> None:
             "project_slug": project.slug,
             "deployment_id": deployment.id,
             "commit_sha": deployment.commit_sha,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         })
 
     # Update subdomain KV

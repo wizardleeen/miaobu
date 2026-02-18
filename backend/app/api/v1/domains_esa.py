@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ...database import get_db
 from ...models import User, Project, CustomDomain, Deployment, DeploymentStatus, SSLStatus
@@ -251,12 +251,12 @@ async def verify_custom_domain(
     is_metavm_subdomain = domain.domain.endswith('.metavm.tech') or domain.domain == 'metavm.tech'
 
     domain.is_verified = True
-    domain.verified_at = datetime.utcnow()
+    domain.verified_at = datetime.now(timezone.utc)
     domain.esa_saas_id = provision_result.get('custom_hostname_id')  # Store custom hostname ID
     domain.esa_status = "pending" if icp_required else "online"
     domain.active_deployment_id = latest_deployment.id
     domain.edge_kv_synced = True
-    domain.edge_kv_synced_at = datetime.utcnow()
+    domain.edge_kv_synced_at = datetime.now(timezone.utc)
 
     # For *.metavm.tech subdomains, SSL is already active via wildcard cert
     if is_metavm_subdomain:
@@ -388,7 +388,6 @@ async def refresh_ssl_status(
     cert_not_after = hostname_status.get('cert_not_after')
     if cert_not_after:
         try:
-            from datetime import datetime
             # Parse timestamp (format may vary, handle common formats)
             if isinstance(cert_not_after, (int, float)):
                 # Unix timestamp
@@ -527,7 +526,7 @@ async def promote_deployment(
     # Update database
     domain.active_deployment_id = deployment.id
     domain.edge_kv_synced = True
-    domain.edge_kv_synced_at = datetime.utcnow()
+    domain.edge_kv_synced_at = datetime.now(timezone.utc)
 
     db.commit()
 
@@ -632,7 +631,7 @@ async def sync_edge_kv(
 
     # Update database
     domain.edge_kv_synced = True
-    domain.edge_kv_synced_at = datetime.utcnow()
+    domain.edge_kv_synced_at = datetime.now(timezone.utc)
     db.commit()
 
     return {

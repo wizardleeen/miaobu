@@ -8,7 +8,7 @@ Handles:
 """
 import json
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from aliyunsdkcore.client import AcsClient
 from aliyunsdkcore.request import CommonRequest
 
@@ -567,7 +567,7 @@ class ESAService:
                     'project_slug': project.slug,
                     'deployment_id': deployment_id,
                     'commit_sha': commit_sha,
-                    'updated_at': datetime.utcnow().isoformat(),
+                    'updated_at': datetime.now(timezone.utc).isoformat(),
                 }
             else:
                 oss_path = f"projects/{project.slug}/{deployment_id}"
@@ -578,7 +578,7 @@ class ESAService:
                     'commit_sha': commit_sha,
                     'oss_path': oss_path,
                     'is_spa': project.is_spa,
-                    'updated_at': datetime.utcnow().isoformat(),
+                    'updated_at': datetime.now(timezone.utc).isoformat(),
                 }
         finally:
             db.close()

@@ -5,7 +5,7 @@ Called by the build callback endpoint after GitHub Actions uploads artifacts.
 Extracted from worker/tasks/deploy.py and worker/tasks/build_python.py.
 """
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Callable
 
 from sqlalchemy.orm import Session
@@ -68,7 +68,7 @@ def deploy_static(
         "project_slug": project.slug,
         "deployment_id": deployment.id,
         "commit_sha": deployment.commit_sha,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     })
 
     log("Updating Edge KV for subdomain routing...")
@@ -89,7 +89,7 @@ def deploy_static(
 
     # --- Mark DEPLOYED ---
     deployment.status = DeploymentStatus.DEPLOYED
-    deployment.deployed_at = datetime.utcnow()
+    deployment.deployed_at = datetime.now(timezone.utc)
     db.commit()
 
     # --- Cache purge ---
@@ -359,7 +359,7 @@ def _deploy_fc_blue_green(
         "project_slug": project.slug,
         "deployment_id": deployment.id,
         "commit_sha": deployment.commit_sha,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     })
 
     log("Updating Edge KV for subdomain routing...")
@@ -382,7 +382,7 @@ def _deploy_fc_blue_green(
 
     # --- Mark DEPLOYED ---
     deployment.status = DeploymentStatus.DEPLOYED
-    deployment.deployed_at = datetime.utcnow()
+    deployment.deployed_at = datetime.now(timezone.utc)
     deployment.deployment_url = deployment_url
     db.commit()
 
@@ -469,7 +469,7 @@ def _sync_custom_domains_static(
             if kv_result["success"]:
                 domain.active_deployment_id = deployment.id
                 domain.edge_kv_synced = True
-                domain.edge_kv_synced_at = datetime.utcnow()
+                domain.edge_kv_synced_at = datetime.now(timezone.utc)
                 log(f"  {domain.domain} updated to deployment #{deployment.id}")
             else:
                 domain.edge_kv_synced = False
@@ -512,13 +512,13 @@ def _sync_custom_domains_fc(
                 "project_slug": project.slug,
                 "deployment_id": deployment.id,
                 "commit_sha": deployment.commit_sha,
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             })
             kv_result = esa_service.put_edge_kv(domain.domain, kv_value)
             if kv_result["success"]:
                 domain.active_deployment_id = deployment.id
                 domain.edge_kv_synced = True
-                domain.edge_kv_synced_at = datetime.utcnow()
+                domain.edge_kv_synced_at = datetime.now(timezone.utc)
                 log(f"  {domain.domain} updated to deployment #{deployment.id}")
             else:
                 domain.edge_kv_synced = False

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .config import get_settings
 from .api.v1 import auth, projects, deployments, repositories, projects_deploy, webhooks, env_vars, build_callback
@@ -53,7 +53,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.get("/health", response_model=HealthCheck, tags=["Health"])
 async def health_check():
     """Health check endpoint."""
-    return HealthCheck(status="ok", timestamp=datetime.utcnow())
+    return HealthCheck(status="ok", timestamp=datetime.now(timezone.utc))
 
 
 # API routes

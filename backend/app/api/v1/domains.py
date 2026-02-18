@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ...database import get_db
 from ...models import User, Project, CustomDomain, SSLStatus
@@ -151,7 +151,7 @@ async def verify_custom_domain(
     if verification_result.get("verified"):
         # Update domain as verified
         domain.is_verified = True
-        domain.verified_at = datetime.utcnow()
+        domain.verified_at = datetime.now(timezone.utc)
         db.commit()
 
         # Optionally add domain to CDN (async task)
@@ -466,8 +466,7 @@ async def get_ssl_status(
     days_until_expiry = None
     needs_renewal = False
     if domain.ssl_expires_at:
-        from datetime import datetime
-        days_until_expiry = (domain.ssl_expires_at - datetime.utcnow()).days
+        days_until_expiry = (domain.ssl_expires_at - datetime.now(timezone.utc)).days
         needs_renewal = days_until_expiry <= 30
 
     return {
