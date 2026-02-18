@@ -4,7 +4,7 @@ from typing import List
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ...database import get_db
 from ...models import User, Project, Deployment, DeploymentStatus, CustomDomain
@@ -45,6 +45,34 @@ def generate_slug(name: str, user_id: int, db: Session) -> str:
         counter += 1
 
     return slug
+
+
+STALE_DEPLOYMENT_MINUTES = 20  # GHA timeout is 15 min
+
+
+def _fail_stale_deployments(project_id: int, db: Session) -> None:
+    """Mark deployments stuck in pre-deployed states as FAILED."""
+    cutoff = datetime.utcnow() - timedelta(minutes=STALE_DEPLOYMENT_MINUTES)
+    stale = (
+        db.query(Deployment)
+        .filter(
+            Deployment.project_id == project_id,
+            Deployment.status.in_([
+                DeploymentStatus.QUEUED,
+                DeploymentStatus.CLONING,
+                DeploymentStatus.BUILDING,
+                DeploymentStatus.UPLOADING,
+                DeploymentStatus.DEPLOYING,
+            ]),
+            Deployment.created_at < cutoff,
+        )
+        .all()
+    )
+    for d in stale:
+        d.status = DeploymentStatus.FAILED
+        d.error_message = "Build timed out — no status update received"
+    if stale:
+        db.commit()
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -119,6 +147,7 @@ async def get_project(
     if project.user_id != current_user.id:
         raise ForbiddenException("You don't have access to this project")
 
+    _fail_stale_deployments(project.id, db)
     return project
 
 
@@ -137,6 +166,7 @@ async def get_project_by_slug(
     if not project:
         raise NotFoundException("Project not found")
 
+    _fail_stale_deployments(project.id, db)
     return project
 
 
