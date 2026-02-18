@@ -36,10 +36,31 @@ jobs:
         run: |
           URL_PATH="/api/v1/internal/deployments/${{ github.event.client_payload.deployment_id }}/clone-token"
           SIG="sha256=$(echo -n "$URL_PATH" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
-          RESPONSE=$(curl -sf --max-time 30 \
-            "${MIAOBU_API_URL}${URL_PATH}" \
-            -H "X-Miaobu-Signature: ${SIG}")
-          TOKEN=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+
+          for attempt in 1 2 3 4 5; do
+            HTTP_CODE=$(curl -s -o /tmp/clone_resp.json -w "%{http_code}" --max-time 30 \
+              "${MIAOBU_API_URL}${URL_PATH}" \
+              -H "X-Miaobu-Signature: ${SIG}") || HTTP_CODE="000"
+
+            if [ "$HTTP_CODE" = "200" ]; then break; fi
+
+            if [ "$HTTP_CODE" -ge 400 ] 2>/dev/null && [ "$HTTP_CODE" -lt 500 ] 2>/dev/null; then
+              echo "::error::Fetch clone token failed: HTTP $HTTP_CODE (client error)"
+              cat /tmp/clone_resp.json 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "::warning::Fetch clone token attempt $attempt failed (HTTP $HTTP_CODE), retrying in 10s..."
+            sleep 10
+          done
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Fetch clone token failed after 5 attempts (last HTTP $HTTP_CODE)"
+            cat /tmp/clone_resp.json 2>/dev/null || true
+            exit 1
+          fi
+
+          TOKEN=$(cat /tmp/clone_resp.json | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
           echo "::add-mask::${TOKEN}"
           echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
 
@@ -61,11 +82,31 @@ jobs:
         run: |
           URL_PATH="/api/v1/internal/deployments/${{ github.event.client_payload.deployment_id }}/env-vars"
           SIG="sha256=$(echo -n "$URL_PATH" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
-          RESPONSE=$(curl -sf --max-time 30 \
-            "${MIAOBU_API_URL}${URL_PATH}" \
-            -H "X-Miaobu-Signature: ${SIG}")
 
-          echo "$RESPONSE" | python3 -c "
+          for attempt in 1 2 3 4 5; do
+            HTTP_CODE=$(curl -s -o /tmp/env_resp.json -w "%{http_code}" --max-time 30 \
+              "${MIAOBU_API_URL}${URL_PATH}" \
+              -H "X-Miaobu-Signature: ${SIG}") || HTTP_CODE="000"
+
+            if [ "$HTTP_CODE" = "200" ]; then break; fi
+
+            if [ "$HTTP_CODE" -ge 400 ] 2>/dev/null && [ "$HTTP_CODE" -lt 500 ] 2>/dev/null; then
+              echo "::error::Fetch env vars failed: HTTP $HTTP_CODE (client error)"
+              cat /tmp/env_resp.json 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "::warning::Fetch env vars attempt $attempt failed (HTTP $HTTP_CODE), retrying in 10s..."
+            sleep 10
+          done
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Fetch env vars failed after 5 attempts (last HTTP $HTTP_CODE)"
+            cat /tmp/env_resp.json 2>/dev/null || true
+            exit 1
+          fi
+
+          cat /tmp/env_resp.json | python3 -c "
           import json, sys, os
           data = json.load(sys.stdin)
           env_file = os.environ['GITHUB_ENV']
@@ -163,12 +204,8 @@ jobs:
             'build_logs': 'Build failed. See GitHub Actions run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n'
           }))
           ")
-          SIG="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
-          curl -sf --max-time 30 \
-            -X POST "${MIAOBU_API_URL}/api/v1/internal/build-callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Miaobu-Signature: ${SIG}" \
-            -d "$BODY" || echo "Warning: failure callback could not be delivered"
+          chmod +x .github/scripts/callback.sh
+          .github/scripts/callback.sh "$BODY"
 
   build-python:
     if: github.event.client_payload.project_type == 'python'
@@ -195,10 +232,31 @@ jobs:
         run: |
           URL_PATH="/api/v1/internal/deployments/${{ github.event.client_payload.deployment_id }}/clone-token"
           SIG="sha256=$(echo -n "$URL_PATH" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
-          RESPONSE=$(curl -sf --max-time 30 \
-            "${MIAOBU_API_URL}${URL_PATH}" \
-            -H "X-Miaobu-Signature: ${SIG}")
-          TOKEN=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+
+          for attempt in 1 2 3 4 5; do
+            HTTP_CODE=$(curl -s -o /tmp/clone_resp.json -w "%{http_code}" --max-time 30 \
+              "${MIAOBU_API_URL}${URL_PATH}" \
+              -H "X-Miaobu-Signature: ${SIG}") || HTTP_CODE="000"
+
+            if [ "$HTTP_CODE" = "200" ]; then break; fi
+
+            if [ "$HTTP_CODE" -ge 400 ] 2>/dev/null && [ "$HTTP_CODE" -lt 500 ] 2>/dev/null; then
+              echo "::error::Fetch clone token failed: HTTP $HTTP_CODE (client error)"
+              cat /tmp/clone_resp.json 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "::warning::Fetch clone token attempt $attempt failed (HTTP $HTTP_CODE), retrying in 10s..."
+            sleep 10
+          done
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Fetch clone token failed after 5 attempts (last HTTP $HTTP_CODE)"
+            cat /tmp/clone_resp.json 2>/dev/null || true
+            exit 1
+          fi
+
+          TOKEN=$(cat /tmp/clone_resp.json | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
           echo "::add-mask::${TOKEN}"
           echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
 
@@ -292,9 +350,5 @@ jobs:
             'build_logs': 'Build failed. See GitHub Actions run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n'
           }))
           ")
-          SIG="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
-          curl -sf --max-time 30 \
-            -X POST "${MIAOBU_API_URL}/api/v1/internal/build-callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Miaobu-Signature: ${SIG}" \
-            -d "$BODY" || echo "Warning: failure callback could not be delivered"
+          chmod +x .github/scripts/callback.sh
+          .github/scripts/callback.sh "$BODY"
