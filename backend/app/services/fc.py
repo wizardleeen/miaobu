@@ -333,10 +333,6 @@ class FCService:
               f"attrs={[a for a in dir(response_body) if not a.startswith('_')]}")
         return None
 
-    def _construct_trigger_url(self, function_name: str) -> str:
-        """Construct the HTTP trigger URL from known components as fallback."""
-        return f"https://{function_name}.{self.account_id}.{self.region}.fcapp.run"
-
     def _ensure_http_trigger(self, function_name: str) -> Optional[str]:
         """
         Ensure an HTTP trigger exists for the function.
@@ -360,9 +356,8 @@ class FCService:
             url = self._extract_trigger_url(response.body)
             if url:
                 return url
-            # Trigger was created but URL extraction failed — use fallback
-            print(f"FC: Trigger created for {function_name} but URL extraction failed, using constructed URL")
-            return self._construct_trigger_url(function_name)
+            print(f"FC: Trigger created for {function_name} but URL extraction failed")
+            return None
 
         except Exception as e:
             if 'TriggerAlreadyExists' in str(e):
@@ -377,9 +372,8 @@ class FCService:
             url = self._extract_trigger_url(response.body)
             if url:
                 return url
-            # Trigger exists but URL extraction failed — use fallback
-            print(f"FC: Trigger exists for {function_name} but URL extraction failed, using constructed URL")
-            return self._construct_trigger_url(function_name)
+            print(f"FC: Trigger exists for {function_name} but URL extraction failed")
+            return None
         except Exception as e:
             print(f"FC: Error getting trigger URL for {function_name}: {e}")
             return None
