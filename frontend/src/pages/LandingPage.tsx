@@ -33,14 +33,14 @@ export default function LandingPage() {
       <div className="container mx-auto px-4 pt-24 pb-16">
         <div className="text-center max-w-4xl mx-auto">
           <h1 className="text-5xl sm:text-6xl font-bold text-[--text-primary] mb-6 tracking-tight">
-            一键部署前端项目
+            一键部署你的项目
             <br />
             <span className="bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">
-              全球 CDN 加速
+              前端静态站 & Python 后端
             </span>
           </h1>
           <p className="text-xl text-[--text-secondary] mb-10 max-w-2xl mx-auto">
-            连接 GitHub 仓库，自动构建并部署到云端，免费 SSL 证书全自动配置
+            连接 GitHub 仓库，自动构建并部署到云端。支持 React、Vue 等前端框架和 FastAPI、Flask 等 Python 后端。
           </p>
           <div className="flex gap-4 justify-center">
             {isAuthenticated ? (
@@ -62,7 +62,7 @@ export default function LandingPage() {
               icon: Rocket,
               color: 'text-blue-500 bg-blue-500/10',
               title: '秒级部署',
-              desc: '推送代码到 GitHub，网站即刻上线',
+              desc: '推送代码到 GitHub，项目即刻上线',
             },
             {
               icon: ShieldCheck,
