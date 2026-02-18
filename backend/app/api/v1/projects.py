@@ -143,12 +143,18 @@ async def get_dashboard_stats(
     """Get dashboard statistics for the current user."""
     user_project_ids = db.query(Project.id).filter(Project.user_id == current_user.id).subquery()
 
-    # Active deployments: projects with at least one DEPLOYED deployment
+    # Active deployments: currently in-progress (queued, cloning, building, uploading, deploying)
     active_deployments = (
-        db.query(sa_func.count(sa_func.distinct(Deployment.project_id)))
+        db.query(sa_func.count(Deployment.id))
         .filter(
             Deployment.project_id.in_(user_project_ids),
-            Deployment.status == DeploymentStatus.DEPLOYED,
+            Deployment.status.in_([
+                DeploymentStatus.QUEUED,
+                DeploymentStatus.CLONING,
+                DeploymentStatus.BUILDING,
+                DeploymentStatus.UPLOADING,
+                DeploymentStatus.DEPLOYING,
+            ]),
         )
         .scalar()
     )
