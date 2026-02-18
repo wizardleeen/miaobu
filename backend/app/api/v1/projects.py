@@ -129,7 +129,7 @@ async def list_projects(
     current_user: User = Depends(get_current_user)
 ):
     """List all projects for the current user."""
-    projects = db.query(Project).filter(Project.user_id == current_user.id).all()
+    projects = db.query(Project).filter(Project.user_id == current_user.id).order_by(Project.created_at.desc()).all()
     return projects
 
 
