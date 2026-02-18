@@ -122,8 +122,16 @@ class FCService:
 
         except Exception as e:
             if 'FunctionAlreadyExists' in str(e):
-                # Update existing function
+                # Update existing function — merge new env vars into existing
                 is_update = True
+                merged_env = {}
+                try:
+                    existing = self.client.get_function(name, fc_models.GetFunctionRequest())
+                    merged_env = dict(existing.body.environment_variables or {})
+                except Exception:
+                    pass
+                merged_env.update(env_vars or {})
+
                 update_input = fc_models.UpdateFunctionInput(
                     runtime='custom.debian10',
                     handler='index.handler',
@@ -132,7 +140,7 @@ class FCService:
                     memory_size=memory_mb,
                     timeout=timeout,
                     internet_access=True,
-                    environment_variables=env_vars or {},
+                    environment_variables=merged_env,
                     layers=[PYTHON_LAYER_ARN],
                 )
                 update_request = fc_models.UpdateFunctionRequest(body=update_input)
