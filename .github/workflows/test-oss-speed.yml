@@ -1,0 +1,63 @@
+name: Test OSS Upload Speed
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install oss2
+        run: pip install oss2
+
+      - name: Create test files
+        run: |
+          # 45MB file (similar to Python package)
+          dd if=/dev/urandom of=/tmp/test-45mb.bin bs=1M count=45
+          # 5MB file (similar to static site)
+          dd if=/dev/urandom of=/tmp/test-5mb.bin bs=1M count=5
+          ls -lh /tmp/test-*.bin
+
+      - name: Test upload speeds
+        env:
+          ALIYUN_AK_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_AK_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+        run: |
+          python3 << 'PYEOF'
+          import oss2, time, os
+
+          ak_id = os.environ['ALIYUN_AK_ID']
+          ak_secret = os.environ['ALIYUN_AK_SECRET']
+          auth = oss2.Auth(ak_id, ak_secret)
+
+          endpoints = {
+              'Hangzhou public': ('oss-cn-hangzhou.aliyuncs.com', 'miaobu-deployments'),
+              'Hangzhou accelerate': ('oss-accelerate.aliyuncs.com', 'miaobu-deployments'),
+              'Qingdao public': ('oss-cn-qingdao.aliyuncs.com', 'miaobu-deployments-qingdao'),
+              'Qingdao accelerate': ('oss-accelerate.aliyuncs.com', 'miaobu-deployments-qingdao'),
+          }
+
+          tests = [
+              ('/tmp/test-5mb.bin', 5, 'static site (~5MB)'),
+              ('/tmp/test-45mb.bin', 45, 'python package (~45MB)'),
+          ]
+
+          for label, (endpoint, bucket_name) in endpoints.items():
+              print(f'\n=== {label}: {endpoint} / {bucket_name} ===')
+              bucket = oss2.Bucket(auth, endpoint, bucket_name)
+              for filepath, size_mb, desc in tests:
+                  key = f'_speed-test/{os.path.basename(filepath)}'
+                  start = time.time()
+                  bucket.put_object_from_file(key, filepath)
+                  elapsed = time.time() - start
+                  speed = size_mb / elapsed
+                  print(f'  {desc}: {elapsed:.1f}s ({speed:.2f} MB/s)')
+                  bucket.delete_object(key)
+
+          print('\nDone!')
+          PYEOF
