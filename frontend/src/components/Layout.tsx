@@ -47,7 +47,7 @@ export default function Layout({ children }: LayoutProps) {
           onClick={closeMobile}
         >
           <Logo size={32} />
-          {!isCollapsed && <span className="text-lg font-bold tracking-tight">Miaobu</span>}
+          {!isCollapsed && <span className="text-lg font-bold tracking-tight">秒部</span>}
         </Link>
       </div>
 
@@ -135,7 +135,7 @@ export default function Layout({ children }: LayoutProps) {
           <Menu size={20} />
         </button>
         <Link to="/dashboard" className="ml-3 text-lg font-bold text-[--text-primary]">
-          Miaobu
+          秒部
         </Link>
       </div>
 

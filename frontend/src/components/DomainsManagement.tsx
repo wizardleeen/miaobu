@@ -417,7 +417,7 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
                   <div className="flex-1 min-w-0">
                     <h5 className="text-sm font-medium text-[--text-primary] mb-1">添加 CNAME 记录</h5>
                     <p className="text-xs text-[--text-secondary] mb-3">
-                      将您的域名指向 Miaobu 边缘网络
+                      将您的域名指向秒部边缘网络
                     </p>
 
                     <div className="bg-[--bg-tertiary] p-3 rounded-lg font-mono text-xs space-y-3">

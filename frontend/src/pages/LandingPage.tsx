@@ -13,7 +13,7 @@ export default function LandingPage() {
         <div className="container mx-auto px-4 h-16 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <Logo size={32} />
-            <span className="text-lg font-bold text-[--text-primary]">Miaobu</span>
+            <span className="text-lg font-bold text-[--text-primary]">秒部</span>
           </div>
           <div>
             {isAuthenticated ? (
