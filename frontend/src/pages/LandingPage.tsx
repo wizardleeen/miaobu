@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
+import Logo from '../components/Logo'
 import { Rocket, ShieldCheck, Zap } from 'lucide-react'
 
 export default function LandingPage() {
@@ -11,9 +12,7 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 backdrop-blur-md bg-[--bg-primary]/80 border-b border-[--border-primary]">
         <div className="container mx-auto px-4 h-16 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center text-white font-bold text-sm">
-              M
-            </div>
+            <Logo size={32} />
             <span className="text-lg font-bold text-[--text-primary]">Miaobu</span>
           </div>
           <div>

@@ -1,6 +1,7 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useSidebar } from '../hooks/useSidebar'
+import Logo from './Logo'
 import {
   LayoutDashboard,
   FolderGit2,
@@ -45,9 +46,7 @@ export default function Layout({ children }: LayoutProps) {
           className="flex items-center gap-3 text-[--text-primary] hover:text-accent transition-colors"
           onClick={closeMobile}
         >
-          <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center text-white font-bold text-sm shrink-0">
-            M
-          </div>
+          <Logo size={32} />
           {!isCollapsed && <span className="text-lg font-bold tracking-tight">Miaobu</span>}
         </Link>
       </div>

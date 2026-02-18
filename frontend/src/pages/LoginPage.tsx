@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../services/api'
 import { useToast } from '../components/Toast'
+import Logo from '../components/Logo'
 import { Github } from 'lucide-react'
 
 export default function LoginPage() {
@@ -31,8 +32,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-[--bg-secondary] flex items-center justify-center px-4">
       <div className="card p-8 max-w-md w-full animate-slide-in">
         <div className="text-center mb-8">
-          <div className="w-12 h-12 rounded-xl bg-accent flex items-center justify-center text-white font-bold text-lg mx-auto mb-4">
-            M
+          <div className="mx-auto mb-4 w-12 h-12">
+            <Logo size={48} />
           </div>
           <h1 className="text-2xl font-bold text-[--text-primary] mb-2">欢迎使用秒部</h1>
           <p className="text-[--text-secondary] text-sm">
