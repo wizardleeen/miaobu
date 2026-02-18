@@ -61,7 +61,7 @@ export default function LandingPage() {
             {
               icon: Rocket,
               color: 'text-blue-500 bg-blue-500/10',
-              title: '秒级部署',
+              title: '一键部署',
               desc: '推送代码到 GitHub，项目即刻上线',
             },
             {
