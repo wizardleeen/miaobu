@@ -377,8 +377,8 @@ async def delete_project(
     except Exception as e:
         logger.warning(f"Failed to delete OSS files: {e}")
 
-    # Clean up FC function for Python projects
-    if project.project_type == "python" and project.fc_function_name:
+    # Clean up FC function for Python/Node.js projects
+    if project.project_type in ("python", "node") and project.fc_function_name:
         try:
             from ...services.fc import FCService
             fc_service = FCService()

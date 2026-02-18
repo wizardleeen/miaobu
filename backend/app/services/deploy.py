@@ -112,21 +112,13 @@ def deploy_python(
     log: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """
-    Finalize a Python project deployment after code package upload.
+    Finalize a Python project deployment using blue-green strategy.
 
-    Steps:
-    1. Deploy/update FC function
-    2. Update Edge KV for subdomain routing
-    3. Sync custom domains with auto-update enabled
-    4. Purge ESA cache
-    5. Mark deployment as DEPLOYED
-
-    Args:
-        deployment_id: Deployment record ID
-        oss_key: OSS object key for the uploaded code zip
-        db: Active SQLAlchemy session
-        log: Optional logging callback
+    Creates a new FC function, health-checks it, then switches traffic.
+    If the new function is unhealthy, the old one stays live.
     """
+    from .fc import FCService
+
     settings = get_settings()
     if log is None:
         log = lambda msg: None
@@ -136,96 +128,27 @@ def deploy_python(
         return {"success": False, "error": f"Deployment {deployment_id} not found"}
 
     project = deployment.project
-
-    # --- Deploy to Function Compute ---
-    from .fc import FCService
-
-    deployment.status = DeploymentStatus.DEPLOYING
-    db.commit()
-
-    fc_service = FCService()
-    fc_function_name = f"miaobu-{project.slug}"
     start_command = project.start_command or "python -m uvicorn main:app --host 0.0.0.0 --port 9000"
-
-    # Collect environment variables
     env_vars = _get_project_env_vars(project.id, db, log)
 
-    log(f"Function name: {fc_function_name}")
-    log(f"Start command: {start_command}")
+    def create_fc(fc_service: FCService, name: str) -> Dict[str, Any]:
+        return fc_service.create_function(
+            name=name,
+            oss_bucket=settings.aliyun_fc_oss_bucket,
+            oss_key=oss_key,
+            start_command=start_command,
+            python_version="3.10",
+            env_vars=env_vars if env_vars else None,
+        )
 
-    fc_result = fc_service.create_or_update_function(
-        name=fc_function_name,
-        oss_bucket=settings.aliyun_fc_oss_bucket,
-        oss_key=oss_key,
-        start_command=start_command,
-        python_version="3.10",
-        env_vars=env_vars if env_vars else None,
-    )
-
-    if not fc_result["success"]:
-        return {"success": False, "error": f"FC deployment failed: {fc_result.get('error')}"}
-
-    fc_endpoint = fc_result["endpoint_url"]
-    log(f"Function deployed: {fc_function_name}")
-    log(f"Endpoint: {fc_endpoint}")
-
-    # Update project with FC info
-    project.fc_function_name = fc_function_name
-    project.fc_endpoint_url = fc_endpoint
-    db.commit()
-
-    commit_tag = deployment.commit_sha[:12] if deployment.commit_sha else "unknown"
-    deployment.fc_function_version = commit_tag
-
-    # --- Edge KV for subdomain ---
-    esa_service = ESAService()
-    subdomain = f"{project.slug}.{settings.cdn_base_domain}"
-    deployment_url = f"https://{subdomain}/"
-
-    kv_value = json.dumps({
-        "type": "python",
-        "fc_endpoint": fc_endpoint,
-        "project_slug": project.slug,
-        "deployment_id": deployment.id,
-        "commit_sha": deployment.commit_sha,
-        "updated_at": datetime.utcnow().isoformat(),
-    })
-
-    log("Updating Edge KV for subdomain routing...")
-    kv_result = esa_service.put_edge_kv(subdomain, kv_value)
-    if kv_result["success"]:
-        log(f"Edge KV updated for {subdomain}")
-    else:
-        log(f"Warning: Edge KV update failed for {subdomain}: {kv_result.get('error')}")
-
-    # --- Auto-update custom domains ---
-    _sync_custom_domains_fc(
-        project=project,
+    return _deploy_fc_blue_green(
         deployment=deployment,
-        fc_endpoint=fc_endpoint,
-        esa_service=esa_service,
+        project=project,
         db=db,
         log=log,
         kv_type="python",
+        create_fc_fn=create_fc,
     )
-
-    # --- Mark DEPLOYED ---
-    deployment.status = DeploymentStatus.DEPLOYED
-    deployment.deployed_at = datetime.utcnow()
-    deployment.deployment_url = deployment_url
-    db.commit()
-
-    # --- Cache purge ---
-    _purge_project_cache(project, esa_service, db, log)
-
-    log(f"Deployment URL: {deployment_url}")
-    log(f"FC Endpoint: {fc_endpoint}")
-    return {
-        "success": True,
-        "deployment_id": deployment_id,
-        "deployment_url": deployment_url,
-        "fc_endpoint": fc_endpoint,
-    }
 
 
 def deploy_node(
@@ -235,21 +158,13 @@ def deploy_node(
     log: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """
-    Finalize a Node.js backend deployment after code package upload.
+    Finalize a Node.js backend deployment using blue-green strategy.
 
-    Steps:
-    1. Deploy/update FC function with Node.js layer
-    2. Update Edge KV for subdomain routing
-    3. Sync custom domains with auto-update enabled
-    4. Purge ESA cache
-    5. Mark deployment as DEPLOYED
-
-    Args:
-        deployment_id: Deployment record ID
-        oss_key: OSS object key for the uploaded code zip
-        db: Active SQLAlchemy session
-        log: Optional logging callback
+    Creates a new FC function, health-checks it, then switches traffic.
+    If the new function is unhealthy, the old one stays live.
     """
+    from .fc import FCService
+
     settings = get_settings()
     if log is None:
         log = lambda msg: None
@@ -259,95 +174,26 @@ def deploy_node(
         return {"success": False, "error": f"Deployment {deployment_id} not found"}
 
     project = deployment.project
-
-    # --- Deploy to Function Compute ---
-    from .fc import FCService
-
-    deployment.status = DeploymentStatus.DEPLOYING
-    db.commit()
-
-    fc_service = FCService()
-    fc_function_name = f"miaobu-{project.slug}"
     start_command = project.start_command or "npm start"
-
-    # Collect environment variables
     env_vars = _get_project_env_vars(project.id, db, log)
 
-    log(f"Function name: {fc_function_name}")
-    log(f"Start command: {start_command}")
+    def create_fc(fc_service: FCService, name: str) -> Dict[str, Any]:
+        return fc_service.create_node_function(
+            name=name,
+            oss_bucket=settings.aliyun_fc_oss_bucket,
+            oss_key=oss_key,
+            start_command=start_command,
+            env_vars=env_vars if env_vars else None,
+        )
 
-    fc_result = fc_service.create_or_update_node_function(
-        name=fc_function_name,
-        oss_bucket=settings.aliyun_fc_oss_bucket,
-        oss_key=oss_key,
-        start_command=start_command,
-        env_vars=env_vars if env_vars else None,
-    )
-
-    if not fc_result["success"]:
-        return {"success": False, "error": f"FC deployment failed: {fc_result.get('error')}"}
-
-    fc_endpoint = fc_result["endpoint_url"]
-    log(f"Function deployed: {fc_function_name}")
-    log(f"Endpoint: {fc_endpoint}")
-
-    # Update project with FC info
-    project.fc_function_name = fc_function_name
-    project.fc_endpoint_url = fc_endpoint
-    db.commit()
-
-    commit_tag = deployment.commit_sha[:12] if deployment.commit_sha else "unknown"
-    deployment.fc_function_version = commit_tag
-
-    # --- Edge KV for subdomain ---
-    esa_service = ESAService()
-    subdomain = f"{project.slug}.{settings.cdn_base_domain}"
-    deployment_url = f"https://{subdomain}/"
-
-    kv_value = json.dumps({
-        "type": "node",
-        "fc_endpoint": fc_endpoint,
-        "project_slug": project.slug,
-        "deployment_id": deployment.id,
-        "commit_sha": deployment.commit_sha,
-        "updated_at": datetime.utcnow().isoformat(),
-    })
-
-    log("Updating Edge KV for subdomain routing...")
-    kv_result = esa_service.put_edge_kv(subdomain, kv_value)
-    if kv_result["success"]:
-        log(f"Edge KV updated for {subdomain}")
-    else:
-        log(f"Warning: Edge KV update failed for {subdomain}: {kv_result.get('error')}")
-
-    # --- Auto-update custom domains ---
-    _sync_custom_domains_fc(
-        project=project,
+    return _deploy_fc_blue_green(
         deployment=deployment,
-        fc_endpoint=fc_endpoint,
-        esa_service=esa_service,
+        project=project,
         db=db,
         log=log,
         kv_type="node",
+        create_fc_fn=create_fc,
     )
-
-    # --- Mark DEPLOYED ---
-    deployment.status = DeploymentStatus.DEPLOYED
-    deployment.deployed_at = datetime.utcnow()
-    deployment.deployment_url = deployment_url
-    db.commit()
-
-    # --- Cache purge ---
-    _purge_project_cache(project, esa_service, db, log)
-
-    log(f"Deployment URL: {deployment_url}")
-    log(f"FC Endpoint: {fc_endpoint}")
-    return {
-        "success": True,
-        "deployment_id": deployment_id,
-        "deployment_url": deployment_url,
-        "fc_endpoint": fc_endpoint,
-    }
 
 
 def cleanup_old_deployments(
@@ -417,6 +263,153 @@ def cleanup_old_deployments(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _deploy_fc_blue_green(
+    deployment: Deployment,
+    project: Project,
+    db: Session,
+    log: Callable,
+    kv_type: str,
+    create_fc_fn: Callable,
+) -> Dict[str, Any]:
+    """
+    Blue-green deployment for FC-based projects (Python and Node.js).
+
+    1. Create a NEW FC function with a unique per-deployment name
+    2. Health-check the new function
+    3. If healthy: switch Edge KV, update project, delete old function
+    4. If unhealthy: delete broken function, keep old one live
+
+    Args:
+        deployment: Deployment record (already loaded)
+        project: Project record
+        db: Active SQLAlchemy session
+        log: Logging callback
+        kv_type: Edge KV type ("python" or "node")
+        create_fc_fn: Callable(fc_service, name) -> fc result dict
+    """
+    from .fc import FCService
+
+    settings = get_settings()
+
+    deployment.status = DeploymentStatus.DEPLOYING
+    db.commit()
+
+    fc_service = FCService()
+    new_name = f"miaobu-{project.slug}-d{deployment.id}"
+    old_name = project.fc_function_name  # may be None on first deploy
+
+    log(f"Creating new function: {new_name}")
+    log(f"Previous function: {old_name or '(none)'}")
+
+    # --- Create NEW FC function ---
+    fc_result = create_fc_fn(fc_service, new_name)
+
+    if not fc_result["success"]:
+        deployment.status = DeploymentStatus.FAILED
+        deployment.error_message = f"FC function creation failed: {fc_result.get('error')}"
+        db.commit()
+        return {"success": False, "error": deployment.error_message}
+
+    fc_endpoint = fc_result["endpoint_url"]
+    deployment.fc_function_name = new_name
+    db.commit()
+
+    log(f"Function created: {new_name}")
+    log(f"Endpoint: {fc_endpoint}")
+
+    # --- Health check ---
+    log("Running health check on new function...")
+    health = fc_service.health_check(fc_endpoint)
+
+    if not health["healthy"]:
+        log(f"Health check FAILED: {health['error']}")
+        deployment.status = DeploymentStatus.FAILED
+        deployment.error_message = f"Health check failed: {health['error']}"
+        db.commit()
+
+        # Clean up the broken function (best-effort)
+        log(f"Deleting broken function {new_name}...")
+        try:
+            fc_service.delete_function(new_name)
+            log(f"Broken function {new_name} deleted")
+        except Exception as e:
+            log(f"Warning: failed to delete broken function {new_name}: {e}")
+
+        return {"success": False, "error": deployment.error_message}
+
+    log(f"Health check passed (status={health['status_code']}, "
+        f"latency={health['latency_ms']}ms, attempt={health['attempt']})")
+
+    # --- Switch traffic: update project and Edge KV ---
+    project.fc_function_name = new_name
+    project.fc_endpoint_url = fc_endpoint
+    db.commit()
+
+    commit_tag = deployment.commit_sha[:12] if deployment.commit_sha else "unknown"
+    deployment.fc_function_version = commit_tag
+
+    esa_service = ESAService()
+    subdomain = f"{project.slug}.{settings.cdn_base_domain}"
+    deployment_url = f"https://{subdomain}/"
+
+    kv_value = json.dumps({
+        "type": kv_type,
+        "fc_endpoint": fc_endpoint,
+        "project_slug": project.slug,
+        "deployment_id": deployment.id,
+        "commit_sha": deployment.commit_sha,
+        "updated_at": datetime.utcnow().isoformat(),
+    })
+
+    log("Updating Edge KV for subdomain routing...")
+    kv_result = esa_service.put_edge_kv(subdomain, kv_value)
+    if kv_result["success"]:
+        log(f"Edge KV updated for {subdomain}")
+    else:
+        log(f"Warning: Edge KV update failed for {subdomain}: {kv_result.get('error')}")
+
+    # --- Auto-update custom domains ---
+    _sync_custom_domains_fc(
+        project=project,
+        deployment=deployment,
+        fc_endpoint=fc_endpoint,
+        esa_service=esa_service,
+        db=db,
+        log=log,
+        kv_type=kv_type,
+    )
+
+    # --- Mark DEPLOYED ---
+    deployment.status = DeploymentStatus.DEPLOYED
+    deployment.deployed_at = datetime.utcnow()
+    deployment.deployment_url = deployment_url
+    db.commit()
+
+    # --- Cache purge ---
+    _purge_project_cache(project, esa_service, db, log)
+
+    # --- Delete old function (best-effort) ---
+    if old_name and old_name != new_name:
+        log(f"Deleting old function {old_name}...")
+        try:
+            result = fc_service.delete_function(old_name)
+            if result["success"]:
+                log(f"Old function {old_name} deleted")
+            else:
+                log(f"Warning: failed to delete old function {old_name}: {result.get('error')}")
+        except Exception as e:
+            log(f"Warning: failed to delete old function {old_name}: {e}")
+
+    log(f"Deployment URL: {deployment_url}")
+    log(f"FC Endpoint: {fc_endpoint}")
+    return {
+        "success": True,
+        "deployment_id": deployment.id,
+        "deployment_url": deployment_url,
+        "fc_endpoint": fc_endpoint,
+    }
+
 
 def _get_project_env_vars(
     project_id: int, db: Session, log: Callable

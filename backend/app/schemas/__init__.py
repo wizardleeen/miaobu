@@ -137,6 +137,7 @@ class DeploymentResponse(DeploymentBase):
     oss_url: Optional[str] = None
     cdn_url: Optional[str] = None
     deployment_url: Optional[str] = None
+    fc_function_name: Optional[str] = None
     fc_function_version: Optional[str] = None
     fc_image_uri: Optional[str] = None
     build_time_seconds: Optional[int] = None

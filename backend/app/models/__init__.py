@@ -139,7 +139,8 @@ class Deployment(Base):
     cdn_url = Column(String(512))
     deployment_url = Column(String(512))  # Primary access URL
 
-    # Function Compute fields (Python deployments)
+    # Function Compute fields (Python/Node.js deployments)
+    fc_function_name = Column(String(255))
     fc_function_version = Column(String(255))
     fc_image_uri = Column(String(512))
 
