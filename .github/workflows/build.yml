@@ -496,9 +496,18 @@ jobs:
         if: steps.cfg.outputs.build_command != ''
         working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
         run: |
+          BUILD_CMD="${{ steps.cfg.outputs.build_command }}"
+          # Skip if package.json has no matching script
+          if echo "$BUILD_CMD" | grep -q "npm run "; then
+            SCRIPT_NAME=$(echo "$BUILD_CMD" | sed 's/npm run //')
+            if ! node -e "const p=require('./package.json'); if(!p.scripts||!p.scripts['$SCRIPT_NAME']){process.exit(1)}"; then
+              echo "=== No '$SCRIPT_NAME' script in package.json, skipping build ==="
+              exit 0
+            fi
+          fi
           echo "=== Running build ==="
           BUILD_START=$(date +%s)
-          ${{ steps.cfg.outputs.build_command }} 2>&1
+          $BUILD_CMD 2>&1
           BUILD_END=$(date +%s)
           echo "build_seconds=$(( ${build_seconds:-0} + BUILD_END - BUILD_START ))" >> "$GITHUB_ENV"
           echo "=== Build complete ($((BUILD_END - BUILD_START))s) ==="
