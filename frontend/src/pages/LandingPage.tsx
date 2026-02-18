@@ -32,10 +32,10 @@ export default function LandingPage() {
       {/* Hero */}
       <div className="container mx-auto px-4 pt-24 pb-16">
         <div className="text-center max-w-4xl mx-auto">
-          <h1 className="text-5xl sm:text-6xl font-bold text-[--text-primary] mb-6 tracking-tight">
+          <h1 className="text-5xl sm:text-6xl font-bold text-[--text-primary] mb-6 tracking-tight leading-tight">
             一键部署你的项目
             <br />
-            <span className="bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">
+            <span className="mt-2 inline-block bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">
               前端与后端全栈支持
             </span>
           </h1>
