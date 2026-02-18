@@ -139,7 +139,8 @@ Value (JSON):
 - Build commands should always use `npm run build` / `pnpm run build` / `yarn run build` (never hardcoded binary names like `slidev build`)
 - When a lockfile (pnpm-lock.yaml, yarn.lock) is detected, BOTH `install_command` and `build_command` must be overridden
 - Python project detection looks for requirements.txt, pyproject.toml, Pipfile
-- Node.js backend detection: `detect_from_node_backend()` checks for Express, Fastify, NestJS, Koa, Hapi in production dependencies. Returns `project_type: "node"` with appropriate start/install/build commands. Only triggers when a backend framework is found in `dependencies` (not devDependencies).
+- Node.js backend detection: `detect_from_node_backend()` checks for Express, Fastify, NestJS, Koa, Hapi in production dependencies. Falls back to plain Node.js server detection: if `scripts.start` looks like a server command (`node xxx.js`, `ts-node`, `nodemon`, or contains "server") and no frontend framework in deps → detected as `node` type.
+- For Node.js backend `start_command`: use the actual `scripts.start` value (e.g., `node index.js`), NOT `"npm start"`, because `npm` binary doesn't work reliably in the FC layer.
 
 ### Deploy Flow (Static)
 1. Clone repo → install deps → build → upload to OSS (`projects/{slug}/{deployment_id}/`)
@@ -159,6 +160,20 @@ Value (JSON):
 3. Bootstrap sets `PATH=/opt/nodejs/bin:$PATH`, `NODE_ENV=production`, `PORT=9000`
 4. Write Edge KV entry for `{slug}.metavm.tech` with `type: "node"` and `fc_endpoint`
 5. Edge routine treats `type: "node"` identically to `type: "python"` (both proxy to FC)
+
+### FC (Function Compute) Gotchas
+- **FC 3.0 URL format**: FC assigns unique subdomain hashes (e.g., `miaobu-ple-node-wobfgfxhse`) that **cannot be predicted** from the function name. You cannot construct URLs from `{function_name}.{account_id}.{region}.fcapp.run`. The URL must be extracted from the trigger response: `response.body.http_trigger.url_internet`.
+- **npm binary broken in FC layer**: `/opt/nodejs/bin/npm` uses relative `require('../lib/cli.js')` that doesn't resolve in the layer directory structure. Route npm commands through `node /opt/nodejs/lib/node_modules/npm/bin/npm-cli.js` directly. Same for npx via `npx-cli.js`.
+- **GHA build step validation**: The `build-node` workflow must check if the npm script actually exists in `package.json` before running (e.g., `npm run build` fails if there's no `build` script). The workflow has a guard for this.
+
+### Python `or` Operator Gotcha
+- `project.build_command or "npm run build"` treats empty string `""` as falsy, always returning the default. When a field can legitimately be empty (e.g., no build step for a Node.js project), use explicit `if project.build_command else ""` instead of `or`.
+
+### Dashboard Stats
+- `GET /api/v1/projects/stats/dashboard` returns `active_deployments` and `builds_this_month`.
+- `active_deployments` = deployments currently in progress (queued/cloning/building/uploading/deploying), NOT the number of projects with a deployed status.
+- `builds_this_month` = total deployments created since the 1st of the current month.
+- Frontend: `DashboardPage.tsx` fetches via `api.getDashboardStats()`.
 
 ### Query Ordering
 - Always add explicit `order_by()` to SQLAlchemy queries that return lists. PostgreSQL does not guarantee row order without it.
