@@ -90,6 +90,7 @@ def deploy_static(
     # --- Mark DEPLOYED ---
     deployment.status = DeploymentStatus.DEPLOYED
     deployment.deployed_at = datetime.now(timezone.utc)
+    project.active_deployment_id = deployment.id
     db.commit()
 
     # --- Cache purge ---
@@ -205,8 +206,10 @@ def cleanup_old_deployments(
     Delete old deployment artifacts from OSS, mark records as PURGED.
 
     Keeps the most recent `keep_count` DEPLOYED deployments plus any
-    pinned to custom domains via active_deployment_id.
+    pinned to custom domains via active_deployment_id or as the
+    project's active deployment.
     """
+    settings = get_settings()
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         return {"error": f"Project {project_id} not found"}
@@ -238,15 +241,31 @@ def cleanup_old_deployments(
     for cd in active_domains:
         protected_ids.add(cd.active_deployment_id)
 
+    # Also protect the project's active deployment
+    if project.active_deployment_id:
+        protected_ids.add(project.active_deployment_id)
+
     to_delete = [d for d in deployments[keep_count:] if d.id not in protected_ids]
 
+    is_fc = project.project_type in ("python", "node")
     oss_service = OSSService()
+    fc_oss_service = None
+    if is_fc:
+        fc_oss_service = OSSService(
+            bucket_name=settings.aliyun_fc_oss_bucket,
+            endpoint=settings.aliyun_oss_endpoint,
+        )
+
     deleted_count = 0
 
     for d in to_delete:
-        oss_prefix = f"projects/{project.slug}/{d.id}/"
         try:
-            oss_service.delete_directory(oss_prefix)
+            if is_fc and fc_oss_service:
+                # Delete FC package from Qingdao bucket
+                fc_oss_service.delete_directory(f"projects/{project.slug}/{d.id}/")
+            else:
+                # Delete static files from Hangzhou bucket
+                oss_service.delete_directory(f"projects/{project.slug}/{d.id}/")
             d.status = DeploymentStatus.PURGED
             deleted_count += 1
         except Exception as e:
@@ -258,6 +277,183 @@ def cleanup_old_deployments(
         "deployments_cleaned": deleted_count,
         "deployments_protected": len(protected_ids),
     }
+
+
+def rollback_to_deployment(
+    deployment_id: int,
+    db: Session,
+    log: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Any]:
+    """
+    Roll back a project to serve an older deployment.
+
+    For static sites: updates Edge KV to point to the old oss_path.
+    For FC projects: creates a new FC function from the old package.
+
+    Args:
+        deployment_id: The target deployment to roll back to
+        db: Active SQLAlchemy session
+        log: Optional logging callback
+    """
+    from .fc import FCService
+
+    settings = get_settings()
+    if log is None:
+        log = lambda msg: None
+
+    deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
+    if not deployment:
+        return {"success": False, "error": f"Deployment {deployment_id} not found"}
+
+    project = deployment.project
+    subdomain = f"{project.slug}.{settings.cdn_base_domain}"
+    esa_service = ESAService()
+
+    if project.project_type == "static":
+        # --- Static rollback: just switch Edge KV ---
+        oss_prefix = f"projects/{project.slug}/{deployment.id}"
+
+        kv_value = json.dumps({
+            "type": "static",
+            "oss_path": oss_prefix,
+            "is_spa": project.is_spa,
+            "project_slug": project.slug,
+            "deployment_id": deployment.id,
+            "commit_sha": deployment.commit_sha,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+        log(f"Rolling back to deployment #{deployment.id}...")
+        kv_result = esa_service.put_edge_kv(subdomain, kv_value)
+        if not kv_result["success"]:
+            return {"success": False, "error": f"Edge KV update failed: {kv_result.get('error')}"}
+
+        log(f"Edge KV updated for {subdomain}")
+
+        # Sync auto-update custom domains
+        _sync_custom_domains_static(
+            project=project,
+            deployment=deployment,
+            esa_service=esa_service,
+            db=db,
+            log=log,
+        )
+
+    else:
+        # --- FC rollback: recreate function from stored package ---
+        oss_key = f"projects/{project.slug}/{deployment.id}/package.zip"
+
+        # Verify the package still exists
+        fc_oss_service = OSSService(
+            bucket_name=settings.aliyun_fc_oss_bucket,
+            endpoint=settings.aliyun_oss_endpoint,
+        )
+        if not fc_oss_service.object_exists(oss_key):
+            return {"success": False, "error": "Deployment package no longer exists in storage"}
+
+        log(f"Rolling back to deployment #{deployment.id} (FC {project.project_type})...")
+
+        fc_service = FCService()
+        start_command = project.start_command or (
+            "python -m uvicorn main:app --host 0.0.0.0 --port 9000"
+            if project.project_type == "python"
+            else "npm start"
+        )
+        env_vars = _get_project_env_vars(project.id, db, log)
+        kv_type = project.project_type
+
+        def create_fc(fc_svc: FCService, name: str) -> Dict[str, Any]:
+            if project.project_type == "python":
+                return fc_svc.create_function(
+                    name=name,
+                    oss_bucket=settings.aliyun_fc_oss_bucket,
+                    oss_key=oss_key,
+                    start_command=start_command,
+                    python_version="3.10",
+                    env_vars=env_vars if env_vars else None,
+                )
+            else:
+                return fc_svc.create_node_function(
+                    name=name,
+                    oss_bucket=settings.aliyun_fc_oss_bucket,
+                    oss_key=oss_key,
+                    start_command=start_command,
+                    env_vars=env_vars if env_vars else None,
+                )
+
+        # Use a rollback-specific function name to avoid collision
+        new_name = f"miaobu-{project.slug}-d{deployment.id}"
+        old_name = project.fc_function_name
+
+        log(f"Creating function: {new_name}")
+        fc_result = create_fc(fc_service, new_name)
+
+        if not fc_result["success"]:
+            return {"success": False, "error": f"FC function creation failed: {fc_result.get('error')}"}
+
+        fc_endpoint = fc_result["endpoint_url"]
+
+        # Health check
+        log("Running health check...")
+        health = fc_service.health_check(fc_endpoint)
+        if not health["healthy"]:
+            log(f"Health check FAILED: {health['error']}")
+            try:
+                fc_service.delete_function(new_name)
+            except Exception:
+                pass
+            return {"success": False, "error": f"Health check failed: {health['error']}"}
+
+        log(f"Health check passed (status={health['status_code']}, "
+            f"latency={health['latency_ms']}ms)")
+
+        # Switch traffic
+        project.fc_function_name = new_name
+        project.fc_endpoint_url = fc_endpoint
+        db.commit()
+
+        kv_value = json.dumps({
+            "type": kv_type,
+            "fc_endpoint": fc_endpoint,
+            "project_slug": project.slug,
+            "deployment_id": deployment.id,
+            "commit_sha": deployment.commit_sha,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+        kv_result = esa_service.put_edge_kv(subdomain, kv_value)
+        if not kv_result["success"]:
+            log(f"Warning: Edge KV update failed: {kv_result.get('error')}")
+
+        # Sync auto-update custom domains
+        _sync_custom_domains_fc(
+            project=project,
+            deployment=deployment,
+            fc_endpoint=fc_endpoint,
+            esa_service=esa_service,
+            db=db,
+            log=log,
+            kv_type=kv_type,
+        )
+
+        # Delete old function (best-effort)
+        if old_name and old_name != new_name:
+            log(f"Deleting old function {old_name}...")
+            try:
+                fc_service.delete_function(old_name)
+            except Exception as e:
+                log(f"Warning: failed to delete old function {old_name}: {e}")
+
+    # --- Update project active deployment ---
+    project.active_deployment_id = deployment.id
+    db.commit()
+
+    # --- Cache purge ---
+    _purge_project_cache(project, esa_service, db, log)
+
+    deployment_url = f"https://{subdomain}/"
+    log(f"Rollback complete. Deployment URL: {deployment_url}")
+    return {"success": True, "deployment_id": deployment.id, "deployment_url": deployment_url}
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +580,7 @@ def _deploy_fc_blue_green(
     deployment.status = DeploymentStatus.DEPLOYED
     deployment.deployed_at = datetime.now(timezone.utc)
     deployment.deployment_url = deployment_url
+    project.active_deployment_id = deployment.id
     db.commit()
 
     # --- Cache purge ---

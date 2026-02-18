@@ -122,6 +122,11 @@ class ApiService {
     return response.data
   }
 
+  async rollbackDeployment(deploymentId: number) {
+    const response = await this.client.post(`/deployments/${deploymentId}/rollback`)
+    return response.data
+  }
+
   // Repository endpoints
   async listRepositories(page: number = 1, perPage: number = 30, search?: string, rootDirectory?: string) {
     const response = await this.client.get('/repositories', {

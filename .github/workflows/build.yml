@@ -320,12 +320,12 @@ jobs:
           python .github/scripts/upload_to_oss.py python \
             "${{ steps.package.outputs.zip_path }}" \
             "${{ github.event.client_payload.project_slug }}" \
-            "${{ steps.package.outputs.commit_tag }}"
+            "${{ github.event.client_payload.deployment_id }}"
 
       - name: Notify uploaded
         if: success()
         run: |
-          OSS_KEY="fc-packages/${{ github.event.client_payload.project_slug }}/${{ steps.package.outputs.commit_tag }}.zip"
+          OSS_KEY="projects/${{ github.event.client_payload.project_slug }}/${{ github.event.client_payload.deployment_id }}/package.zip"
           BODY=$(python3 -c "
           import json
           print(json.dumps({
@@ -553,12 +553,12 @@ jobs:
           python .github/scripts/upload_to_oss.py node \
             "${{ steps.package.outputs.zip_path }}" \
             "${{ github.event.client_payload.project_slug }}" \
-            "${{ steps.package.outputs.commit_tag }}"
+            "${{ github.event.client_payload.deployment_id }}"
 
       - name: Notify uploaded
         if: success()
         run: |
-          OSS_KEY="fc-packages/${{ github.event.client_payload.project_slug }}/${{ steps.package.outputs.commit_tag }}.zip"
+          OSS_KEY="projects/${{ github.event.client_payload.project_slug }}/${{ github.event.client_payload.deployment_id }}/package.zip"
           BODY=$(python3 -c "
           import json
           print(json.dumps({

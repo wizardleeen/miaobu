@@ -105,6 +105,7 @@ class ProjectResponse(ProjectBase):
     webhook_id: Optional[int] = None
     fc_function_name: Optional[str] = None
     fc_endpoint_url: Optional[str] = None
+    active_deployment_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 

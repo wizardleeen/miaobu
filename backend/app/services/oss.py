@@ -17,17 +17,25 @@ class OSSService:
     Handles file uploads, directory uploads, and public URL generation.
     """
 
-    def __init__(self):
-        """Initialize OSS client with credentials from settings."""
+    def __init__(self, bucket_name: Optional[str] = None, endpoint: Optional[str] = None):
+        """Initialize OSS client with credentials from settings.
+
+        Args:
+            bucket_name: Override bucket name (default: settings.aliyun_oss_bucket)
+            endpoint: Override endpoint (default: settings.aliyun_oss_endpoint)
+        """
         self.auth = oss2.Auth(
             settings.aliyun_access_key_id,
             settings.aliyun_access_key_secret
         )
 
+        self._bucket_name = bucket_name or settings.aliyun_oss_bucket
+        self._endpoint = endpoint or settings.aliyun_oss_endpoint
+
         self.bucket = oss2.Bucket(
             self.auth,
-            settings.aliyun_oss_endpoint,
-            settings.aliyun_oss_bucket
+            self._endpoint,
+            self._bucket_name,
         )
 
         # Text file extensions that should be gzipped

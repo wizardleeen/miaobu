@@ -99,6 +99,9 @@ class Project(Base):
     oss_path = Column(String(512))  # user_id/project_id/
     default_domain = Column(String(255))  # {slug}.miaobu.app
 
+    # Active deployment tracking
+    active_deployment_id = Column(Integer, ForeignKey("deployments.id"), index=True)
+
     # Webhook
     webhook_id = Column(Integer)
     webhook_secret = Column(String(255))
@@ -111,6 +114,10 @@ class Project(Base):
     deployments = relationship("Deployment", back_populates="project", cascade="all, delete-orphan", order_by="Deployment.created_at.desc()")
     custom_domains = relationship("CustomDomain", back_populates="project", cascade="all, delete-orphan")
     environment_variables = relationship("EnvironmentVariable", back_populates="project", cascade="all, delete-orphan")
+    active_deployment = relationship(
+        "Deployment",
+        foreign_keys=[active_deployment_id],
+    )
 
     def __repr__(self):
         return f"<Project(id={self.id}, name={self.name}, slug={self.slug})>"

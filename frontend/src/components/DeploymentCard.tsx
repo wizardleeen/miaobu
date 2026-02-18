@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
-import { ExternalLink, ChevronDown, ChevronUp, XCircle } from 'lucide-react'
+import { ExternalLink, ChevronDown, ChevronUp, XCircle, RotateCcw } from 'lucide-react'
 
 interface Deployment {
   id: number
@@ -21,11 +21,21 @@ interface Deployment {
 
 interface DeploymentCardProps {
   deployment: Deployment
+  activeDeploymentId?: number | null
+  isRollbackDisabled?: boolean
   onCancel?: (id: number) => void
+  onRollback?: (id: number) => void
 }
 
-export default function DeploymentCard({ deployment, onCancel }: DeploymentCardProps) {
+export default function DeploymentCard({
+  deployment,
+  activeDeploymentId,
+  isRollbackDisabled,
+  onCancel,
+  onRollback,
+}: DeploymentCardProps) {
   const [showLogs, setShowLogs] = useState(false)
+  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false)
 
   const { data: logsData } = useQuery({
     queryKey: ['deployment-logs', deployment.id],
@@ -81,6 +91,8 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
 
   const canCancel = ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(deployment.status)
   const isDeployed = deployment.status === 'deployed' && deployment.deployment_url
+  const isActive = activeDeploymentId === deployment.id
+  const canRollback = deployment.status === 'deployed' && !isActive && onRollback
 
   return (
     <div className="py-4 first:pt-0 last:pb-0">
@@ -91,6 +103,11 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
               {getStatusDot(deployment.status)}
               {getStatusLabel(deployment.status)}
             </span>
+            {isActive && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
+                当前
+              </span>
+            )}
             {deployment.build_time_seconds && (
               <span className="text-xs text-[--text-tertiary]">
                 {deployment.build_time_seconds}s
@@ -120,6 +137,16 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
               预览
             </a>
           )}
+          {canRollback && (
+            <button
+              onClick={() => setShowRollbackConfirm(true)}
+              disabled={isRollbackDisabled}
+              className="btn-secondary text-xs px-2.5 py-1.5 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RotateCcw size={12} />
+              回滚
+            </button>
+          )}
           <button
             onClick={() => setShowLogs(!showLogs)}
             className="btn-secondary text-xs px-2.5 py-1.5 flex items-center gap-1"
@@ -137,6 +164,31 @@ export default function DeploymentCard({ deployment, onCancel }: DeploymentCardP
           )}
         </div>
       </div>
+
+      {showRollbackConfirm && (
+        <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg">
+          <p className="text-sm text-amber-800 dark:text-amber-300 mb-2">
+            确定要回滚到此部署吗？当前版本将被替换。
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setShowRollbackConfirm(false)
+                onRollback?.(deployment.id)
+              }}
+              className="btn-primary text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-700 border-amber-600"
+            >
+              确认回滚
+            </button>
+            <button
+              onClick={() => setShowRollbackConfirm(false)}
+              className="btn-secondary text-xs px-3 py-1.5"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
 
       {isDeployed && (
         <div className="mt-3 p-2.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-lg">

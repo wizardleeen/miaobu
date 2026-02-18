@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 import httpx
 
@@ -127,3 +127,73 @@ async def cancel_deployment(
     db.commit()
 
     return {"success": True, "deployment_id": deployment_id}
+
+
+@router.post("/deployments/{deployment_id}/rollback")
+async def rollback_deployment(
+    deployment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Roll back the project to serve an older deployment."""
+    deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
+
+    if not deployment:
+        raise NotFoundException("Deployment not found")
+
+    project = deployment.project
+
+    if project.user_id != current_user.id:
+        raise ForbiddenException("You don't have access to this deployment")
+
+    # Must be a DEPLOYED deployment (not PURGED/FAILED/etc.)
+    if deployment.status != DeploymentStatus.DEPLOYED:
+        raise HTTPException(
+            status_code=400,
+            detail="Only deployed deployments can be used for rollback",
+        )
+
+    # Cannot rollback to already-active deployment
+    if project.active_deployment_id == deployment.id:
+        raise HTTPException(
+            status_code=400,
+            detail="This deployment is already active",
+        )
+
+    # No in-progress deployment allowed
+    in_progress = (
+        db.query(Deployment)
+        .filter(
+            Deployment.project_id == project.id,
+            Deployment.status.in_([
+                DeploymentStatus.QUEUED,
+                DeploymentStatus.CLONING,
+                DeploymentStatus.BUILDING,
+                DeploymentStatus.UPLOADING,
+                DeploymentStatus.DEPLOYING,
+            ]),
+        )
+        .first()
+    )
+    if in_progress:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot rollback while a deployment is in progress",
+        )
+
+    from ...services.deploy import rollback_to_deployment
+
+    def log(msg):
+        deployment.build_logs = (deployment.build_logs or "") + msg + "\n"
+        db.commit()
+
+    result = rollback_to_deployment(
+        deployment_id=deployment.id,
+        db=db,
+        log=log,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Rollback failed"))
+
+    return result

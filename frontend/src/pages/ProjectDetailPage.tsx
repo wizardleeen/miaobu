@@ -13,6 +13,7 @@ export default function ProjectDetailPage() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const [isDeploying, setIsDeploying] = useState(false)
+  const [isRollingBack, setIsRollingBack] = useState(false)
 
   const { data: project, isLoading, refetch } = useQuery({
     queryKey: ['project', projectId],
@@ -42,6 +43,21 @@ export default function ProjectDetailPage() {
     },
   })
 
+  const rollbackMutation = useMutation({
+    mutationFn: (deploymentId: number) => api.rollbackDeployment(deploymentId),
+    onSuccess: async () => {
+      toast('回滚成功', 'success')
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      await refetch()
+      setIsRollingBack(false)
+    },
+    onError: (error: any) => {
+      const msg = error.response?.data?.detail || '回滚失败，请重试'
+      toast(msg, 'error')
+      setIsRollingBack(false)
+    },
+  })
+
   const handleDeploy = () => {
     setIsDeploying(true)
     deployMutation.mutate()
@@ -51,6 +67,11 @@ export default function ProjectDetailPage() {
     if (confirm('确定要取消此次部署吗？')) {
       cancelMutation.mutate(deploymentId)
     }
+  }
+
+  const handleRollback = (deploymentId: number) => {
+    setIsRollingBack(true)
+    rollbackMutation.mutate(deploymentId)
   }
 
   if (isLoading) {
@@ -246,7 +267,10 @@ export default function ProjectDetailPage() {
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
+                activeDeploymentId={project.active_deployment_id}
+                isRollbackDisabled={isRollingBack || hasActiveDeployment}
                 onCancel={handleCancel}
+                onRollback={handleRollback}
               />
             ))}
           </div>

@@ -3,8 +3,8 @@
 Upload build artifacts to Aliyun OSS from GitHub Actions.
 
 Usage:
-  Static:  python upload_to_oss.py static <output_dir> <slug> <deployment_id>
-  Python:  python upload_to_oss.py python <zip_path> <slug> <commit_tag>
+  Static:       python upload_to_oss.py static <output_dir> <slug> <deployment_id>
+  Python/Node:  python upload_to_oss.py python|node <zip_path> <slug> <deployment_id>
 
 Environment variables required:
   ALIYUN_AK_ID, ALIYUN_AK_SECRET
@@ -91,8 +91,8 @@ def upload_static(output_dir: str, slug: str, deployment_id: str):
     print(f"Done — {len(files)} files uploaded to {oss_prefix}")
 
 
-def upload_python(zip_path: str, slug: str, commit_tag: str):
-    """Upload a Python code package zip to OSS."""
+def upload_fc_package(zip_path: str, slug: str, deployment_id: str):
+    """Upload a code package zip (Python or Node.js) to OSS."""
     auth = oss2.Auth(os.environ["ALIYUN_AK_ID"], os.environ["ALIYUN_AK_SECRET"])
     bucket = oss2.Bucket(auth, ACCELERATE_ENDPOINT, PYTHON_BUCKET)
 
@@ -101,14 +101,12 @@ def upload_python(zip_path: str, slug: str, commit_tag: str):
         print(f"ERROR: zip file not found: {zip_path}")
         sys.exit(1)
 
-    oss_key = f"fc-packages/{slug}/{commit_tag}.zip"
+    oss_key = f"projects/{slug}/{deployment_id}/package.zip"
     size_mb = zp.stat().st_size / (1024 * 1024)
     print(f"Uploading {zp.name} ({size_mb:.1f} MB) to {oss_key}")
 
     bucket.put_object_from_file(oss_key, str(zp))
     print(f"Done — uploaded to {oss_key}")
-    # Print the key so the workflow can capture it
-    print(f"::set-output name=oss_key::{oss_key}")
 
 
 if __name__ == "__main__":
@@ -119,11 +117,8 @@ if __name__ == "__main__":
     mode = sys.argv[1]
     if mode == "static":
         upload_static(sys.argv[2], sys.argv[3], sys.argv[4])
-    elif mode == "python":
-        upload_python(sys.argv[2], sys.argv[3], sys.argv[4])
-    elif mode == "node":
-        # Node.js backend uses same bucket/path pattern as Python (FC packages)
-        upload_python(sys.argv[2], sys.argv[3], sys.argv[4])
+    elif mode in ("python", "node"):
+        upload_fc_package(sys.argv[2], sys.argv[3], sys.argv[4])
     else:
         print(f"Unknown mode: {mode}")
         sys.exit(1)
