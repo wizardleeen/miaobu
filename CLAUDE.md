@@ -76,6 +76,8 @@ Value (JSON):
 - `frontend/src/pages/ProjectSettingsPage.tsx` - Project settings (build config, domains, env vars)
 - `frontend/src/components/EnvironmentVariables.tsx` - Env vars management UI
 - `frontend/src/components/DomainsManagement.tsx` - Custom domain management (DNS config, deployment promotion, auto-update toggle)
+- `frontend/src/components/Toast.tsx` - Shared toast notification provider (`ToastProvider` + `useToast` hook)
+- `frontend/src/components/Logo.tsx` - SVG logo component (cat paw mark)
 
 ### Edge
 - `edge-routine.js` - Single source of truth for ESA Edge Routine code
@@ -112,6 +114,26 @@ Value (JSON):
 - Deploy button: `isDeploying` must stay `true` until `await refetch()` completes, otherwise there's a gap where neither `isDeploying` nor `hasActiveDeployment` is true and the button becomes clickable.
 - Long modal content with `flex items-center justify-center`: when content exceeds viewport height, `items-center` pushes the top out of scrollable area. Use `items-start` instead.
 
+### Frontend Toast Notifications
+- **Never use browser `alert()`** — use the shared `useToast()` hook from `frontend/src/components/Toast.tsx`.
+- `ToastProvider` wraps the app in `App.tsx`. Any component can call `const { toast } = useToast()` then `toast('message', 'success' | 'error' | 'warning' | 'info')`.
+- Toast animations (`animate-toast-in`, `animate-toast-out`) are defined in `tailwind.config.js`.
+
+### Frontend Logo
+- Logo component: `frontend/src/components/Logo.tsx` — renders an inline SVG cat paw mark (秒部 ≈ 喵步 wordplay).
+- Favicon: `frontend/public/logo.svg`.
+- Used in: Layout sidebar, Layout mobile header, LandingPage navbar, LoginPage.
+
+### ICP Domain Handling
+- When ESA `CreateCustomHostname` succeeds but the domain lacks ICP filing, ESA marks the hostname `offline` (status=`pending` in our DB).
+- The verify endpoint returns `verified: true` with `icp_required: true` and a Chinese-language message.
+- Frontend checks `result.icp_required` and shows a warning toast instead of the generic success message.
+- Domain list shows a `需要 ICP 备案` badge when `is_verified && esa_status === 'pending'`.
+- DNS instructions modal shows an ICP-specific warning banner with link to `beian.aliyun.com` when `esa_status === 'pending'`.
+
+### Backend Error Message Gotcha
+- In `domains_esa.py`, when ESA provisioning fails, the error dict uses key `'error'` (not `'message'`). Use `provision_result.get('error')` to extract the message.
+
 ### Build Detection
 - `BuildDetector` in `build_detector.py` detects framework from `package.json` dependencies
 - Build commands should always use `npm run build` / `pnpm run build` / `yarn run build` (never hardcoded binary names like `slidev build`)
@@ -130,28 +152,21 @@ Value (JSON):
 2. Write Edge KV entry for `{slug}.metavm.tech` with `type: "python"` and `fc_endpoint`
 3. `deployment_url` is the subdomain URL (not raw FC endpoint)
 
-## Common Operations
+### Query Ordering
+- Always add explicit `order_by()` to SQLAlchemy queries that return lists. PostgreSQL does not guarantee row order without it.
+- Project list: `order_by(Project.created_at.desc())` — newest first.
 
-### Rebuild/redeploy a service
-```bash
-docker compose up -d --build backend
-docker compose up -d --build worker
-```
+## Deployment & Operations
 
-### Container volume mounts
-- **backend**: only `backend/` is mounted at `/app`. Scripts outside `backend/` are NOT accessible inside the container.
-- **worker**: `worker/` is mounted at `/app`. Has Docker socket access.
+### Code Deployment
+Code is deployed via `git push` to the `main` branch. Docker containers are **no longer used** for deployment. A push to main triggers the hosting platform to redeploy backend and frontend automatically.
 
-### Database access
-```bash
-docker exec miaobu-backend python -c "
-import sys; sys.path.insert(0, '/app')
-from app.database import SessionLocal
-db = SessionLocal()
-# ... queries ...
-db.close()
-"
-```
+### GitHub Actions Build Pipeline
+- Builds are triggered via `repository_dispatch` (type `miaobu-build`) when a user deploys their project.
+- Workflow: `.github/workflows/build.yml` — has `build-static` and `build-python` jobs.
+- All API calls (clone-token, env-vars, callbacks) have **retry logic** (5 attempts, 10s apart) to survive backend redeploys. Only retries on 5xx/connection errors; fails immediately on 4xx.
+- Callback helper: `.github/scripts/callback.sh` — sends signed POST to the build-callback endpoint with retry.
+- **Key issue**: when a git push redeploys the backend, any concurrent GHA builds will hit the API during the restart window. The retry logic handles this.
 
 ### ESA cache purge
 Done automatically during deploy via `esa_service.purge_host_cache([hostname])`.
