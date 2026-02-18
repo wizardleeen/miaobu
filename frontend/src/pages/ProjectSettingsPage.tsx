@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import Layout from '../components/Layout'
+import { useToast } from '../components/Toast'
 import DomainsManagement from '../components/DomainsManagement'
 import EnvironmentVariables from '../components/EnvironmentVariables'
 import { ArrowLeft, ExternalLink, AlertTriangle } from 'lucide-react'
@@ -25,6 +26,7 @@ export default function ProjectSettingsPage() {
     python_framework: '',
   })
 
+  const { toast } = useToast()
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const { data: project, isLoading } = useQuery({
@@ -55,7 +57,7 @@ export default function ProjectSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       queryClient.invalidateQueries({ queryKey: ['projects'] })
-      alert('项目设置更新成功！')
+      toast('项目设置更新成功！', 'success')
     },
   })
 

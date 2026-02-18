@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import { useTheme } from './hooks/useTheme'
+import { ToastProvider } from './components/Toast'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -15,6 +16,7 @@ function App() {
   const { isAuthenticated } = useAuthStore()
 
   return (
+    <ToastProvider>
     <Router>
       <Routes>
         <Route path="/" element={<LandingPage />} />
@@ -44,6 +46,7 @@ function App() {
         />
       </Routes>
     </Router>
+    </ToastProvider>
   )
 }
 

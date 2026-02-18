@@ -3,6 +3,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
 import Layout from '../components/Layout'
+import { useToast } from '../components/Toast'
 import { Search, ArrowLeft, AlertTriangle, Check, X, Plus, Trash2, Lock } from 'lucide-react'
 
 interface Repository {
@@ -20,6 +21,7 @@ interface Repository {
 
 export default function ImportRepositoryPage() {
   const navigate = useNavigate()
+  const { toast } = useToast()
   const [search, setSearch] = useState('')
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
@@ -74,7 +76,7 @@ export default function ImportRepositoryPage() {
       })
     } catch (error) {
       console.error('Failed to analyze repository:', error)
-      alert('分析仓库失败，请重试。')
+      toast('分析仓库失败，请重试。', 'error')
       setSelectedRepo(null)
     } finally {
       setAnalyzing(false)

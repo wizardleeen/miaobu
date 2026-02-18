@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import Layout from '../components/Layout'
+import { useToast } from '../components/Toast'
 import DeploymentCard from '../components/DeploymentCard'
 import { Rocket, Settings, Check, ExternalLink } from 'lucide-react'
 
@@ -10,6 +11,7 @@ export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { toast } = useToast()
   const [isDeploying, setIsDeploying] = useState(false)
 
   const { data: project, isLoading, refetch } = useQuery({
@@ -28,7 +30,7 @@ export default function ProjectDetailPage() {
     },
     onError: () => {
       setIsDeploying(false)
-      alert('触发部署失败，请重试')
+      toast('触发部署失败，请重试', 'error')
     },
   })
 

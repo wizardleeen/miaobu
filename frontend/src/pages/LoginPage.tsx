@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../services/api'
+import { useToast } from '../components/Toast'
 import { Github } from 'lucide-react'
 
 export default function LoginPage() {
@@ -14,13 +15,15 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, navigate])
 
+  const { toast } = useToast()
+
   const handleGitHubLogin = async () => {
     try {
       const { url } = await api.getGitHubLoginUrl()
       window.location.href = url
     } catch (error) {
       console.error('Failed to get GitHub login URL:', error)
-      alert('登录失败，请重试')
+      toast('登录失败，请重试', 'error')
     }
   }
 

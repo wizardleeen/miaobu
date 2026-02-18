@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
+import { useToast } from './Toast'
 import {
   Copy,
   Check,
@@ -17,16 +18,7 @@ import {
   X,
   Lightbulb,
   Shield,
-  Info,
 } from 'lucide-react'
-
-type ToastType = 'success' | 'error' | 'warning' | 'info'
-interface Toast {
-  id: number
-  message: string
-  type: ToastType
-  leaving: boolean
-}
 
 interface DomainsManagementProps {
   projectId: number
@@ -34,6 +26,7 @@ interface DomainsManagementProps {
 
 export default function DomainsManagement({ projectId }: DomainsManagementProps) {
   const queryClient = useQueryClient()
+  const { toast } = useToast()
   const [showAddDomain, setShowAddDomain] = useState(false)
   const [newDomain, setNewDomain] = useState('')
   const [selectedDomain, setSelectedDomain] = useState<any>(null)
@@ -42,20 +35,6 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
   const [showDeployments, setShowDeployments] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [refreshingSSL, setRefreshingSSL] = useState(false)
-  const [toasts, setToasts] = useState<Toast[]>([])
-  const toastIdRef = useRef(0)
-
-  const dismissToast = useCallback((id: number) => {
-    setToasts(prev => prev.map(t => t.id === id ? { ...t, leaving: true } : t))
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 200)
-  }, [])
-
-  const toast = useCallback((message: string, type: ToastType = 'info') => {
-    const id = ++toastIdRef.current
-    setToasts(prev => [...prev, { id, message, type, leaving: false }])
-    const duration = type === 'error' || type === 'warning' ? 6000 : 4000
-    setTimeout(() => dismissToast(id), duration)
-  }, [dismissToast])
 
   const copyToClipboard = async (text: string, fieldName: string) => {
     try {
@@ -740,52 +719,6 @@ export default function DomainsManagement({ projectId }: DomainsManagementProps)
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Toast Notifications */}
-      {toasts.length > 0 && (
-        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
-          {toasts.map((t) => {
-            const styles = {
-              success: {
-                bg: 'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800',
-                text: 'text-emerald-800 dark:text-emerald-200',
-                icon: <CheckCircle2 size={16} className="text-emerald-500 dark:text-emerald-400 flex-shrink-0" />,
-              },
-              error: {
-                bg: 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800',
-                text: 'text-red-800 dark:text-red-200',
-                icon: <AlertTriangle size={16} className="text-red-500 dark:text-red-400 flex-shrink-0" />,
-              },
-              warning: {
-                bg: 'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800',
-                text: 'text-amber-800 dark:text-amber-200',
-                icon: <AlertTriangle size={16} className="text-amber-500 dark:text-amber-400 flex-shrink-0" />,
-              },
-              info: {
-                bg: 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800',
-                text: 'text-blue-800 dark:text-blue-200',
-                icon: <Info size={16} className="text-blue-500 dark:text-blue-400 flex-shrink-0" />,
-              },
-            }[t.type]
-            return (
-              <div
-                key={t.id}
-                className={`${styles.bg} ${t.leaving ? 'animate-toast-out' : 'animate-toast-in'} border rounded-lg p-3 shadow-lg flex items-start gap-2.5`}
-              >
-                {styles.icon}
-                <span className={`${styles.text} text-sm leading-snug flex-1`}>{t.message}</span>
-                <button
-                  type="button"
-                  onClick={() => dismissToast(t.id)}
-                  className={`${styles.text} opacity-50 hover:opacity-100 flex-shrink-0 mt-0.5`}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )
-          })}
         </div>
       )}
 
