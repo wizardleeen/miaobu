@@ -609,7 +609,12 @@ class FCService:
 
     def delete_function(self, name: str) -> Dict[str, Any]:
         """
-        Delete an FC function and its triggers.
+        Delete an FC function, its triggers, and provision config.
+
+        FC rejects function deletion if provisioned concurrency is still
+        configured.  The provision config delete is eventually consistent,
+        so we retry the function deletion after a short delay if the first
+        attempt gets ProvisionConfigExist.
 
         Args:
             name: Function name
@@ -618,18 +623,35 @@ class FCService:
             Deletion result
         """
         try:
+            # Must delete provision config before function
+            try:
+                self.client.delete_provision_config(
+                    name, fc_models.DeleteProvisionConfigRequest(qualifier='LATEST')
+                )
+            except Exception:
+                pass  # Provision config may not exist
+
             # Must delete triggers before function
             try:
                 self.client.delete_trigger(name, 'http-trigger')
             except Exception:
                 pass  # Trigger may not exist
 
-            self.client.delete_function(name)
-            return {
-                'success': True,
-                'function_name': name,
-                'message': f'Function {name} deleted',
-            }
+            # Try to delete; retry once after delay if provision config
+            # deletion hasn't propagated yet
+            for attempt in range(3):
+                try:
+                    self.client.delete_function(name)
+                    return {
+                        'success': True,
+                        'function_name': name,
+                        'message': f'Function {name} deleted',
+                    }
+                except Exception as e:
+                    if 'ProvisionConfigExist' in str(e) and attempt < 2:
+                        time.sleep(2)
+                        continue
+                    raise
         except Exception as e:
             return {
                 'success': False,
