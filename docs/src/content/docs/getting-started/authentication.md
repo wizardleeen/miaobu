@@ -19,7 +19,7 @@ mb_live_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDEF
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/user
+  https://miaobu-api.metavm.tech/api/v1/public/user
 ```
 
 ## 创建令牌
@@ -41,7 +41,7 @@ curl -X POST \
   -H "Authorization: Bearer YOUR_JWT" \
   -H "Content-Type: application/json" \
   -d '{"name": "CI/CD", "expires_in_days": 90}' \
-  https://miaobu1.metavm.tech/api/v1/tokens
+  https://miaobu-api.metavm.tech/api/v1/tokens
 ```
 
 ## 令牌安全

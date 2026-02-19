@@ -7,7 +7,7 @@ description: 用 5 分钟开始使用秒部公开 API。
 
 ## 基本信息
 
-- **Base URL**: `https://miaobu1.metavm.tech/api/v1/public`
+- **Base URL**: `https://miaobu-api.metavm.tech/api/v1/public`
 - **认证方式**: Bearer Token（API 令牌或 JWT）
 - **数据格式**: JSON
 
@@ -25,7 +25,7 @@ description: 用 5 分钟开始使用秒部公开 API。
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/user
+  https://miaobu-api.metavm.tech/api/v1/public/user
 ```
 
 返回示例：
@@ -46,7 +46,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects
+  https://miaobu-api.metavm.tech/api/v1/public/projects
 ```
 
 返回示例：

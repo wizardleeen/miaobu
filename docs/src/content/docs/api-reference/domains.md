@@ -13,7 +13,7 @@ GET /projects/{id}/domains
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/domains
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/domains
 ```
 
 **响应：**
@@ -58,7 +58,7 @@ curl -X POST \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"domain": "blog.example.com"}' \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/domains
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/domains
 ```
 
 **响应：** `201 Created`
@@ -104,7 +104,7 @@ POST /projects/{id}/domains/{domain_id}/verify
 ```bash
 curl -X POST \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/domains/5/verify
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/domains/5/verify
 ```
 
 :::note
@@ -126,7 +126,7 @@ DELETE /projects/{id}/domains/{domain_id}
 ```bash
 curl -X DELETE \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/domains/5
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/domains/5
 ```
 
 **响应：** `204 No Content`

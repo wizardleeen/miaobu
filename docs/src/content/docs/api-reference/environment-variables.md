@@ -13,7 +13,7 @@ GET /projects/{id}/env-vars
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/env-vars
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/env-vars
 ```
 
 **响应：**
@@ -70,7 +70,7 @@ curl -X POST \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"key": "API_KEY", "value": "sk-abc123", "is_secret": true}' \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/env-vars
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/env-vars
 ```
 
 **响应：** `201 Created`
@@ -106,7 +106,7 @@ DELETE /projects/{id}/env-vars/{var_id}
 ```bash
 curl -X DELETE \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/env-vars/12
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/env-vars/12
 ```
 
 **响应：** `204 No Content`

@@ -20,7 +20,7 @@ GET /projects
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  "https://miaobu1.metavm.tech/api/v1/public/projects?page=1&per_page=10"
+  "https://miaobu-api.metavm.tech/api/v1/public/projects?page=1&per_page=10"
 ```
 
 **响应：**
@@ -71,7 +71,7 @@ GET /projects/{id}
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1
 ```
 
 **响应：**
@@ -99,7 +99,7 @@ GET /projects/slug/{slug}
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/slug/my-blog
+  https://miaobu-api.metavm.tech/api/v1/public/projects/slug/my-blog
 ```
 
 ---
@@ -131,7 +131,7 @@ curl -X PATCH \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"build_command": "pnpm run build", "install_command": "pnpm install"}' \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1
 ```
 
 ---
@@ -153,7 +153,7 @@ DELETE /projects/{id}
 ```bash
 curl -X DELETE \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1
 ```
 
 **响应：** `204 No Content`

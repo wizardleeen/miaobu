@@ -20,7 +20,7 @@ GET /projects/{id}/deployments
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  "https://miaobu1.metavm.tech/api/v1/public/projects/1/deployments?page=1&per_page=5"
+  "https://miaobu-api.metavm.tech/api/v1/public/projects/1/deployments?page=1&per_page=5"
 ```
 
 **响应：**
@@ -64,7 +64,7 @@ GET /projects/{id}/deployments/{deployment_id}
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/deployments/42
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/deployments/42
 ```
 
 ---
@@ -79,7 +79,7 @@ GET /projects/{id}/deployments/{deployment_id}/logs
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/deployments/42/logs
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/deployments/42/logs
 ```
 
 **响应：**
@@ -118,7 +118,7 @@ curl -X POST \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"branch": "main"}' \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/deployments
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/deployments
 ```
 
 **响应：** `201 Created`
@@ -152,7 +152,7 @@ POST /projects/{id}/deployments/{deployment_id}/cancel
 ```bash
 curl -X POST \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/deployments/43/cancel
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/deployments/43/cancel
 ```
 
 :::note
@@ -174,7 +174,7 @@ POST /projects/{id}/deployments/{deployment_id}/rollback
 ```bash
 curl -X POST \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  https://miaobu1.metavm.tech/api/v1/public/projects/1/deployments/41/rollback
+  https://miaobu-api.metavm.tech/api/v1/public/projects/1/deployments/41/rollback
 ```
 
 :::note

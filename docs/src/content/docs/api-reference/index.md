@@ -6,7 +6,7 @@ description: 秒部公开 API 的通用约定、认证方式、错误格式和�
 ## Base URL
 
 ```
-https://miaobu1.metavm.tech/api/v1/public
+https://miaobu-api.metavm.tech/api/v1/public
 ```
 
 ## 认证
