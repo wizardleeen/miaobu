@@ -130,8 +130,19 @@ async def list_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List all projects for the current user."""
-    projects = db.query(Project).filter(Project.user_id == current_user.id).order_by(Project.created_at.desc()).all()
+    """List all projects for the current user, ordered by most recent build activity."""
+    latest_deploy = (
+        db.query(sa_func.max(Deployment.created_at))
+        .filter(Deployment.project_id == Project.id)
+        .correlate(Project)
+        .scalar_subquery()
+    )
+    projects = (
+        db.query(Project)
+        .filter(Project.user_id == current_user.id)
+        .order_by(latest_deploy.desc().nulls_last(), Project.created_at.desc())
+        .all()
+    )
     return projects
 
 
