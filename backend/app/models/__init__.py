@@ -258,3 +258,26 @@ class EnvironmentVariable(Base):
 
     def __repr__(self):
         return f"<EnvironmentVariable(id={self.id}, project_id={self.project_id}, key={self.key})>"
+
+
+class ApiToken(Base):
+    """API token for programmatic access."""
+    __tablename__ = "api_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    name = Column(String(255), nullable=False)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)  # SHA-256
+    prefix = Column(String(16), nullable=False)  # e.g. mb_live_XXXXXXXX
+    scopes = Column(Text, nullable=True)  # Reserved for future use
+
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<ApiToken(id={self.id}, user_id={self.user_id}, prefix={self.prefix})>"

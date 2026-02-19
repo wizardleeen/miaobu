@@ -10,6 +10,7 @@ import ProjectDetailPage from './pages/ProjectDetailPage'
 import ProjectSettingsPage from './pages/ProjectSettingsPage'
 import ImportRepositoryPage from './pages/ImportRepositoryPage'
 import CallbackPage from './pages/CallbackPage'
+import AccountSettingsPage from './pages/AccountSettingsPage'
 
 function App() {
   useTheme()
@@ -43,6 +44,10 @@ function App() {
         <Route
           path="/projects/:projectId/settings"
           element={isAuthenticated ? <ProjectSettingsPage /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/settings"
+          element={isAuthenticated ? <AccountSettingsPage /> : <Navigate to="/login" />}
         />
       </Routes>
     </Router>

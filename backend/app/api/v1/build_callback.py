@@ -125,11 +125,26 @@ async def build_callback(
         # Record build time
         if payload.build_time_seconds is not None:
             deployment.build_time_seconds = payload.build_time_seconds
-
-        # Set DEPLOYING — the ECS deploy worker will pick this up and run
-        # the actual deploy (blue-green FC creation, Edge KV update, etc.)
-        deployment.status = DeploymentStatus.DEPLOYING
         db.commit()
+
+        # Run deploy inline — FC updates are ~300ms, total <2s
+        from ...services.deploy import deploy_static, deploy_python, deploy_node
+
+        project = deployment.project
+        project_type = project.project_type or "static"
+
+        if project_type == "python":
+            result = deploy_python(deployment.id, payload.oss_key, db)
+        elif project_type == "node":
+            result = deploy_node(deployment.id, payload.oss_key, db)
+        else:
+            result = deploy_static(deployment.id, db)
+
+        if not result.get("success"):
+            deployment.status = DeploymentStatus.FAILED
+            deployment.error_message = result.get("error", "Deploy failed")
+            db.commit()
+
         return {"ok": True}
 
     if payload.status == "failed":

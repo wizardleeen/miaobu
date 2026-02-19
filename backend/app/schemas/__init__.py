@@ -250,5 +250,27 @@ class HealthCheck(BaseModel):
     timestamp: datetime
 
 
+# API Token Schemas
+class ApiTokenCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    expires_in_days: Optional[int] = Field(None, ge=1, le=365)
+
+
+class ApiTokenResponse(BaseModel):
+    id: int
+    name: str
+    prefix: str
+    last_used_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ApiTokenCreated(ApiTokenResponse):
+    token: str  # Full token, shown only once
+
+
 # Rebuild models to resolve forward references
 ProjectWithDeployments.model_rebuild()

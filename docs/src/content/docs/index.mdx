@@ -1,0 +1,34 @@
+---
+title: 秒部 API 文档
+description: 秒部公开 API 使用指南 — 通过编程方式管理项目、部署和域名。
+template: splash
+hero:
+  tagline: 通过 API 管理你的项目、部署和域名
+  actions:
+    - text: 快速开始
+      link: /getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: API 参考
+      link: /api-reference/
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## 核心功能
+
+<CardGrid stagger>
+  <Card title="项目管理" icon="pencil">
+    创建、更新和删除项目，查看项目配置和状态。
+  </Card>
+  <Card title="自动化部署" icon="rocket">
+    通过 API 触发部署、查看构建日志、回滚到历史版本。
+  </Card>
+  <Card title="域名管理" icon="external">
+    添加自定义域名，自动配置 SSL 证书和全球 CDN 加速。
+  </Card>
+  <Card title="环境变量" icon="setting">
+    安全管理项目的环境变量，支持加密存储敏感值。
+  </Card>
+</CardGrid>

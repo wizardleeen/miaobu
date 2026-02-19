@@ -63,3 +63,8 @@ Thumbs.db
 # Build artifacts
 build-cache/
 temp-builds/
+
+# Docs
+docs/node_modules/
+docs/dist/
+docs/.astro/

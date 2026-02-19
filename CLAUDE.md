@@ -7,10 +7,9 @@ Miaobu is a Vercel-like deployment platform that deploys GitHub repositories to 
 
 ### Services (docker-compose)
 - **backend** (port 8000): FastAPI API server
-- **worker**: Celery async worker (has Docker socket access for Python builds)
 - **frontend** (port 3000): React + Vite + TypeScript UI
 - **postgres** (port 5433): PostgreSQL 16 database
-- **redis** (port 6379): Redis (Celery broker)
+- **redis** (port 6379): Redis
 
 ### Traffic Routing (ESA-only architecture)
 ALL traffic routes through Aliyun ESA (Edge Security Acceleration):
@@ -63,12 +62,6 @@ Value (JSON):
 - `backend/app/services/fc.py` - Aliyun Function Compute service (Python + Node.js)
 - `backend/app/models/__init__.py` - SQLAlchemy models (User, Project, Deployment, CustomDomain, etc.)
 - `backend/app/config.py` - Settings (env vars, Aliyun credentials)
-
-### Worker
-- `worker/tasks/build.py` - Static site build pipeline (clone → install → build)
-- `worker/tasks/build_python.py` - Python app build pipeline (clone → Docker build → push to ACR → deploy to FC)
-- `worker/tasks/deploy.py` - OSS upload + Edge KV update + ESA cache purge + cleanup old deployments
-- `worker/celery_app.py` - Celery configuration
 
 ### Frontend
 - `frontend/src/pages/ImportRepositoryPage.tsx` - Repository import with build config detection
@@ -149,20 +142,21 @@ Value (JSON):
 4. Purge ESA cache for hostname
 5. Trigger `cleanup_old_deployments` (keeps 3 most recent, protects custom-domain-pinned, marks old as `PURGED`)
 
-### Deploy Flow (Python) — Blue-Green
+### Deploy Flow (Python) — In-Place Update
 1. Clone repo → install deps to `python_deps/` → zip → upload to OSS
-2. Create NEW FC function `miaobu-{slug}-d{deployment_id}` (unique per deploy)
-3. Health check new function (6 attempts, backoff [5,5,10,10,15,15]s)
-4. If healthy: switch Edge KV, update project, delete old function
-5. If unhealthy: mark FAILED, delete broken function, old stays live
+2. GHA callback triggers inline deploy: `create_or_update_function("miaobu-{slug}", ...)` (~300ms, zero-downtime)
+3. Update Edge KV with new deployment metadata (commit_sha, deployment_id)
+4. Sync custom domains, purge cache
+5. FC function name is stable: `miaobu-{slug}` (not per-deployment)
 6. `deployment_url` is the subdomain URL (not raw FC endpoint)
 
-### Deploy Flow (Node.js) — Blue-Green
+### Deploy Flow (Node.js) — In-Place Update
 1. Clone repo → install deps → optional build → prune devDeps → zip → upload to OSS
-2. FC function uses Node.js 20 layer (`NODEJS_LAYER_ARN`) with `custom.debian10` runtime
-3. Bootstrap sets `PATH=/opt/nodejs/bin:$PATH`, `NODE_ENV=production`, `PORT=9000`
-4. Write Edge KV entry for `{slug}.metavm.tech` with `type: "node"` and `fc_endpoint`
-5. Edge routine treats `type: "node"` identically to `type: "python"` (both proxy to FC)
+2. GHA callback triggers inline deploy: `create_or_update_node_function("miaobu-{slug}", ...)` (~300ms, zero-downtime)
+3. FC function uses Node.js 20 layer (`NODEJS_LAYER_ARN`) with `custom.debian10` runtime
+4. Bootstrap sets `PATH=/opt/nodejs/bin:$PATH`, `NODE_ENV=production`, `PORT=9000`
+5. Update Edge KV entry for `{slug}.metavm.tech` with `type: "node"` and `fc_endpoint`
+6. Edge routine treats `type: "node"` identically to `type: "python"` (both proxy to FC)
 
 ### FC (Function Compute) Gotchas
 - **FC 3.0 URL format**: FC assigns unique subdomain hashes (e.g., `miaobu-ple-node-wobfgfxhse`) that **cannot be predicted** from the function name. You cannot construct URLs from `{function_name}.{account_id}.{region}.fcapp.run`. The URL must be extracted from the trigger response: `response.body.http_trigger.url_internet`.

@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.database import Base
-from app.models import User, Project, Deployment, CustomDomain, BuildCache
+from app.models import User, Project, Deployment, CustomDomain, BuildCache, ApiToken
 from app.config import get_settings
 
 # this is the Alembic Config object, which provides

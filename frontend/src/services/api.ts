@@ -245,6 +245,21 @@ class ApiService {
     await this.client.delete(`/projects/${projectId}/env/${varId}`)
   }
 
+  // API Token endpoints
+  async listApiTokens() {
+    const response = await this.client.get('/tokens')
+    return response.data
+  }
+
+  async createApiToken(data: { name: string; expires_in_days?: number }) {
+    const response = await this.client.post('/tokens', data)
+    return response.data
+  }
+
+  async revokeApiToken(tokenId: number) {
+    await this.client.delete(`/tokens/${tokenId}`)
+  }
+
   // Legacy SSL Certificate endpoints (deprecated - ESA handles SSL automatically)
   // Kept for backward compatibility, but these endpoints no longer exist
   async issueSSL(_domainId: number, _useStaging: boolean = false) {

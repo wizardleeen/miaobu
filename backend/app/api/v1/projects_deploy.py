@@ -181,9 +181,15 @@ async def rollback_deployment(
             detail="Cannot rollback while a deployment is in progress",
         )
 
-    # Set DEPLOYING — the ECS deploy worker will pick this up.
-    # The worker detects rollbacks by checking deployed_at (non-null = was previously deployed).
-    deployment.status = DeploymentStatus.DEPLOYING
-    db.commit()
+    # Run rollback inline — FC updates are ~300ms, total <2s
+    from ...services.deploy import rollback_to_deployment
+
+    result = rollback_to_deployment(deployment.id, db)
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Rollback failed"),
+        )
 
     return {"ok": True, "deployment_id": deployment.id}

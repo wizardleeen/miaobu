@@ -6,11 +6,14 @@ import {
   LayoutDashboard,
   FolderGit2,
   GitBranch,
+  Settings,
   PanelLeftClose,
   PanelLeftOpen,
   LogOut,
   Menu,
   X,
+  BookOpen,
+  ExternalLink,
 } from 'lucide-react'
 
 interface LayoutProps {
@@ -21,7 +24,10 @@ const navItems = [
   { to: '/dashboard', label: '控制台', icon: LayoutDashboard },
   { to: '/projects', label: '项目', icon: FolderGit2 },
   { to: '/projects/import', label: '导入仓库', icon: GitBranch },
+  { to: '/settings', label: '设置', icon: Settings },
 ]
+
+const docsUrl = import.meta.env.VITE_DOCS_URL
 
 export default function Layout({ children }: LayoutProps) {
   const { user, logout } = useAuthStore()
@@ -74,6 +80,23 @@ export default function Layout({ children }: LayoutProps) {
             </Link>
           )
         })}
+        {docsUrl && (
+          <a
+            href={docsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[--text-secondary] hover:text-[--text-primary] hover:bg-[--bg-tertiary] transition-colors"
+            title={isCollapsed ? 'API 文档' : undefined}
+          >
+            <BookOpen size={20} className="shrink-0" />
+            {!isCollapsed && (
+              <>
+                <span>API 文档</span>
+                <ExternalLink size={14} className="ml-auto text-[--text-tertiary]" />
+              </>
+            )}
+          </a>
+        )}
       </nav>
 
       {/* User Section */}
