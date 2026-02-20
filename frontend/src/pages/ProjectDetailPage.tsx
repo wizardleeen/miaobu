@@ -25,7 +25,7 @@ export default function ProjectDetailPage() {
   })
 
   const deployMutation = useMutation({
-    mutationFn: (branch?: string) => api.triggerDeployment(Number(projectId), branch),
+    mutationFn: (branch: string | undefined) => api.triggerDeployment(Number(projectId), branch),
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       await refetch()
@@ -64,7 +64,7 @@ export default function ProjectDetailPage() {
 
   const handleDeploy = () => {
     setIsDeploying(true)
-    deployMutation.mutate()
+    deployMutation.mutate(undefined)
   }
 
   const handleStagingDeploy = () => {
