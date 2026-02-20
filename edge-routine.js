@@ -133,7 +133,7 @@ async function proxyToFC(request, url, fcEndpoint) {
     method: request.method,
     headers: proxyHeaders,
     body: request.body,
-    redirect: 'follow'
+    redirect: 'manual'
   });
 
   const response = await fetch(proxyRequest);

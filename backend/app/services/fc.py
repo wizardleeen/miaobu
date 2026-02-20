@@ -44,6 +44,17 @@ class FCService:
         self.account_id = settings.aliyun_account_id
         self.region = fc_region
 
+    def _get_vpc_config(self) -> Optional[fc_models.VPCConfig]:
+        """Build VPC configuration if VPC settings are provided."""
+        settings = self.settings
+        if settings.aliyun_fc_vpc_id and settings.aliyun_fc_vswitch_id:
+            return fc_models.VPCConfig(
+                vpc_id=settings.aliyun_fc_vpc_id,
+                vswitch_ids=[settings.aliyun_fc_vswitch_id],
+                security_group_id=settings.aliyun_fc_security_group_id if settings.aliyun_fc_security_group_id else None,
+            )
+        return None
+
     def create_or_update_function(
         self,
         name: str,
@@ -104,6 +115,7 @@ class FCService:
             port=9000,
         )
 
+        vpc_config = self._get_vpc_config()
         is_update = False
 
         try:
@@ -118,6 +130,7 @@ class FCService:
                 internet_access=True,
                 environment_variables=env_vars or {},
                 layers=[PYTHON_LAYER_ARN],
+                vpc_config=vpc_config,
             )
             request = fc_models.CreateFunctionRequest(body=create_input)
             self.client.create_function(request)
@@ -145,6 +158,7 @@ class FCService:
                     internet_access=True,
                     environment_variables=merged_env,
                     layers=[PYTHON_LAYER_ARN],
+                    vpc_config=vpc_config,
                 )
                 update_request = fc_models.UpdateFunctionRequest(body=update_input)
                 self.client.update_function(name, update_request)
@@ -232,6 +246,7 @@ class FCService:
             port=9000,
         )
 
+        vpc_config = self._get_vpc_config()
         is_update = False
 
         try:
@@ -246,6 +261,7 @@ class FCService:
                 internet_access=True,
                 environment_variables=env_vars or {},
                 layers=[NODEJS_LAYER_ARN],
+                vpc_config=vpc_config,
             )
             request = fc_models.CreateFunctionRequest(body=create_input)
             self.client.create_function(request)
@@ -272,6 +288,7 @@ class FCService:
                     internet_access=True,
                     environment_variables=merged_env,
                     layers=[NODEJS_LAYER_ARN],
+                    vpc_config=vpc_config,
                 )
                 update_request = fc_models.UpdateFunctionRequest(body=update_input)
                 self.client.update_function(name, update_request)

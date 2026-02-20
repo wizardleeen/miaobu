@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     aliyun_acr_registry: str = ""  # e.g., "registry.cn-hangzhou.aliyuncs.com"
     aliyun_acr_namespace: str = "miaobu"
 
+    # Function Compute VPC Configuration (for proxy access)
+    aliyun_fc_vpc_id: str = ""
+    aliyun_fc_vswitch_id: str = ""
+    aliyun_fc_security_group_id: str = ""
+
     # Environment variable encryption
     env_encryption_key: str = ""  # Fernet key for encrypting env var values
 
