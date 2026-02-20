@@ -152,10 +152,10 @@ def deploy_python(
 
     fc_service = FCService()
     if is_staging:
-        stable_name = f"miaobu-{project.slug}-staging"
+        stable_name = f"{settings.miaobu_fc_prefix}-{project.slug}-staging"
         old_name = project.staging_fc_function_name
     else:
-        stable_name = f"miaobu-{project.slug}"
+        stable_name = f"{settings.miaobu_fc_prefix}-{project.slug}"
         old_name = project.fc_function_name  # may differ if migrating from blue-green
 
     log(f"Deploying function: {stable_name}")
@@ -298,10 +298,10 @@ def deploy_node(
 
     fc_service = FCService()
     if is_staging:
-        stable_name = f"miaobu-{project.slug}-staging"
+        stable_name = f"{settings.miaobu_fc_prefix}-{project.slug}-staging"
         old_name = project.staging_fc_function_name
     else:
-        stable_name = f"miaobu-{project.slug}"
+        stable_name = f"{settings.miaobu_fc_prefix}-{project.slug}"
         old_name = project.fc_function_name  # may differ if migrating from blue-green
 
     log(f"Deploying function: {stable_name}")
@@ -586,9 +586,9 @@ def rollback_to_deployment(
 
         fc_service = FCService()
         if is_staging:
-            stable_name = f"miaobu-{project.slug}-staging"
+            stable_name = f"{settings.miaobu_fc_prefix}-{project.slug}-staging"
         else:
-            stable_name = f"miaobu-{project.slug}"
+            stable_name = f"{settings.miaobu_fc_prefix}-{project.slug}"
         start_command = project.start_command or (
             "python -m uvicorn main:app --host 0.0.0.0 --port 9000"
             if project.project_type == "python"

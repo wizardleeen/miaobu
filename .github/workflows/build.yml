@@ -5,10 +5,15 @@ on:
     types: [miaobu-build]
 
 env:
-  MIAOBU_API_URL: ${{ secrets.MIAOBU_API_URL }}
-  MIAOBU_CALLBACK_SECRET: ${{ secrets.MIAOBU_CALLBACK_SECRET }}
+  MIAOBU_API_URL: ${{ github.event.client_payload.api_url || secrets.MIAOBU_API_URL }}
+  MIAOBU_CALLBACK_SECRET: >-
+    ${{ github.event.client_payload.callback_secret_env == 'STAGING'
+        && secrets.MIAOBU_CALLBACK_SECRET_STAGING
+        || secrets.MIAOBU_CALLBACK_SECRET }}
   ALIYUN_AK_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
   ALIYUN_AK_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+  MIAOBU_STATIC_BUCKET: ${{ github.event.client_payload.static_bucket || 'miaobu-deployments' }}
+  MIAOBU_FC_BUCKET: ${{ github.event.client_payload.fc_bucket || 'miaobu-deployments-qingdao' }}
 
 jobs:
   build-static:

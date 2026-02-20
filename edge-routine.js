@@ -18,7 +18,7 @@
  *   Staging: adds "staging": true, "staging_password_hash": "..." to any type
  */
 
-const BASE_DOMAIN = 'metavm.tech';
+const BASE_DOMAIN = '__BASE_DOMAIN__';
 const STAGING_COOKIE_NAME = '__miaobu_staging';
 const STAGING_SESSION_HOURS = 24;
 const STAGING_HMAC_KEY = 'miaobu-staging-edge-key-2026';
@@ -31,15 +31,16 @@ export default {
     console.log(`[Miaobu] Request: ${hostname}${url.pathname}`);
 
     try {
-      const edgeKV = new EdgeKV({ namespace: "miaobu" });
+      const edgeKV = new EdgeKV({ namespace: "__KV_NAMESPACE__" });
       const kvValue = await edgeKV.get(hostname, { type: "text" });
 
       if (kvValue) {
         const mapping = JSON.parse(kvValue);
         console.log(`[Miaobu] Found mapping for ${hostname}:`, mapping);
 
-        // --- Staging password protection ---
-        if (mapping.staging && mapping.staging_password_hash) {
+        // --- Staging password protection (static/frontend only) ---
+        const projectType = mapping.type || 'static';
+        if (mapping.staging && mapping.staging_password_hash && projectType === 'static') {
           // Handle login POST
           if (url.pathname === '/__miaobu_staging_login' && request.method === 'POST') {
             return handleStagingLogin(request, url, mapping.staging_password_hash);
@@ -52,7 +53,6 @@ export default {
           }
         }
 
-        const projectType = mapping.type || 'static';
         let response;
 
         if (projectType === 'python' || projectType === 'node') {
