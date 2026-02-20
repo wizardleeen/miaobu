@@ -63,10 +63,21 @@ Value (JSON):
 - `backend/app/models/__init__.py` - SQLAlchemy models (User, Project, Deployment, CustomDomain, etc.)
 - `backend/app/config.py` - Settings (env vars, Aliyun credentials)
 
+### Backend (Public API)
+- `backend/app/api/v1/public/router.py` - Aggregates all public API sub-routers
+- `backend/app/api/v1/public/projects.py` - Project CRUD (list, get, update, delete)
+- `backend/app/api/v1/public/deployments.py` - Deployment management (list, get, logs, trigger, cancel, rollback)
+- `backend/app/api/v1/public/domains.py` - Custom domain management (list, add, verify, delete)
+- `backend/app/api/v1/public/env_vars.py` - Environment variable management (list, create, delete)
+- `backend/app/api/v1/public/user.py` - User profile endpoint
+- `backend/app/api/v1/public/helpers.py` - Pagination, response formatting utilities
+- `backend/app/api/v1/api_tokens.py` - API token create/list/revoke (JWT-only)
+
 ### Frontend
 - `frontend/src/pages/ImportRepositoryPage.tsx` - Repository import with build config detection
 - `frontend/src/pages/ProjectDetailPage.tsx` - Project dashboard with deployments
 - `frontend/src/pages/ProjectSettingsPage.tsx` - Project settings (build config, domains, env vars)
+- `frontend/src/pages/AccountSettingsPage.tsx` - API token management UI
 - `frontend/src/components/EnvironmentVariables.tsx` - Env vars management UI
 - `frontend/src/components/DomainsManagement.tsx` - Custom domain management (DNS config, deployment promotion, auto-update toggle)
 - `frontend/src/components/Toast.tsx` - Shared toast notification provider (`ToastProvider` + `useToast` hook)
@@ -201,6 +212,29 @@ Code is deployed via `git push` to the `main` branch. Docker containers are **no
 ### ESA cache purge
 Done automatically during deploy via `esa_service.purge_host_cache([hostname])`.
 
+## Public API & Token Auth
+- **Public API router**: `backend/app/api/v1/public/` — projects, deployments, domains, env vars, user endpoints
+  - Mounted at `/api/v1/public` in `backend/app/main.py`
+  - Uses `get_current_user_flexible` (dual auth: API token or JWT)
+  - Response helpers in `public/helpers.py`: `paginated_response()`, `single_response()`, `error_response()`
+- **API Token management**: `backend/app/api/v1/api_tokens.py` — create/list/revoke tokens (JWT-only, at `/api/v1/tokens`)
+- **ApiToken model**: `backend/app/models/__init__.py` — SHA-256 hashed storage, `mb_live_` prefix, optional expiration
+- **Dual auth middleware**: `backend/app/core/security.py` — `get_current_user_flexible` checks Bearer token as API token first (prefix + hash lookup), falls back to JWT
+- **Frontend token management**: `frontend/src/pages/AccountSettingsPage.tsx` — accessible from Settings page
+- **Environment variable encryption**: Values in `environment_variables` table are encrypted at rest (Fernet). Direct SQL inserts bypass encryption — always use the API.
+
+## API Docs Site (Astro Starlight)
+- **Location**: `docs/` directory — Astro 5 + Starlight 0.37
+- **Package manager**: pnpm (not npm). `pnpm.onlyBuiltDependencies` in `package.json` whitelists `esbuild` and `sharp`.
+- **Content config**: `docs/src/content.config.ts` is required (Astro 5 no longer auto-generates content collections). Uses `docsLoader()` + `docsSchema()` from Starlight.
+- **Locale config**: Monolingual Chinese site uses `defaultLocale: 'root'` with `locales: { root: { label: '简体中文', lang: 'zh-CN' } }`.
+- **Starlight 0.33+ breaking change**: `social` config changed from object to array: `[{ icon: 'github', label: 'GitHub', href: '...' }]`.
+- **API base URL in docs**: `https://miaobu-api.metavm.tech/api/v1/public` — hardcoded across markdown files.
+- **Build**: `pnpm run build` from `docs/` directory. Output in `docs/dist/`.
+- **Gitignore**: `docs/node_modules/`, `docs/dist/`, `docs/.astro/` are excluded.
+- **Frontend link**: Layout sidebar has "API 文档" link (external, new tab) when `VITE_DOCS_URL` env var is set. Production value: `https://miaobu-docs.metavm.tech`.
+
 ## Base Domain
 The base domain is `metavm.tech` (configured as `cdn_base_domain` in settings).
 Subdomains: `{slug}.metavm.tech`
+
