@@ -179,9 +179,13 @@ async def get_deployment_env_vars(
 
     from ...services.encryption import decrypt_value
 
+    env_scope = "staging" if deployment.is_staging else "production"
     records = (
         db.query(EnvironmentVariable)
-        .filter(EnvironmentVariable.project_id == deployment.project_id)
+        .filter(
+            EnvironmentVariable.project_id == deployment.project_id,
+            EnvironmentVariable.environment == env_scope,
+        )
         .all()
     )
 

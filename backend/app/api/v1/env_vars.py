@@ -30,6 +30,7 @@ def _get_project_or_403(project_id: int, user: User, db: Session) -> Project:
 @router.get("", response_model=List[EnvironmentVariableResponse])
 async def list_env_vars(
     project_id: int,
+    environment: str = "production",
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -37,7 +38,8 @@ async def list_env_vars(
     _get_project_or_403(project_id, current_user, db)
 
     env_vars = db.query(EnvironmentVariable).filter(
-        EnvironmentVariable.project_id == project_id
+        EnvironmentVariable.project_id == project_id,
+        EnvironmentVariable.environment == environment,
     ).order_by(EnvironmentVariable.key).all()
 
     # Mask secret values in the response
@@ -58,6 +60,7 @@ async def list_env_vars(
             key=ev.key,
             value=value,
             is_secret=ev.is_secret,
+            environment=ev.environment,
             created_at=ev.created_at,
             updated_at=ev.updated_at,
         ))
@@ -75,10 +78,12 @@ async def create_env_var(
     """Create a new environment variable."""
     _get_project_or_403(project_id, current_user, db)
 
-    # Check for duplicate key
+    # Check for duplicate key within the same environment
+    env = data.environment if hasattr(data, 'environment') else "production"
     existing = db.query(EnvironmentVariable).filter(
         EnvironmentVariable.project_id == project_id,
         EnvironmentVariable.key == data.key,
+        EnvironmentVariable.environment == env,
     ).first()
 
     if existing:
@@ -93,6 +98,7 @@ async def create_env_var(
         key=data.key,
         value=encrypted_value,
         is_secret=data.is_secret,
+        environment=env,
     )
 
     db.add(env_var)
@@ -105,6 +111,7 @@ async def create_env_var(
         key=env_var.key,
         value=MASK if env_var.is_secret else data.value,
         is_secret=env_var.is_secret,
+        environment=env_var.environment,
         created_at=env_var.created_at,
         updated_at=env_var.updated_at,
     )
@@ -171,6 +178,7 @@ async def update_env_var(
         key=env_var.key,
         value=value,
         is_secret=env_var.is_secret,
+        environment=env_var.environment,
         created_at=env_var.created_at,
         updated_at=env_var.updated_at,
     )

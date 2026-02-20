@@ -6,7 +6,7 @@ import Layout from '../components/Layout'
 import { useToast } from '../components/Toast'
 import DomainsManagement from '../components/DomainsManagement'
 import EnvironmentVariables from '../components/EnvironmentVariables'
-import { ArrowLeft, ExternalLink, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, ExternalLink, AlertTriangle, FlaskConical } from 'lucide-react'
 
 export default function ProjectSettingsPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -28,6 +28,8 @@ export default function ProjectSettingsPage() {
 
   const { toast } = useToast()
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [stagingEnabled, setStagingEnabled] = useState(false)
+  const [stagingPassword, setStagingPassword] = useState('')
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', projectId],
@@ -49,6 +51,7 @@ export default function ProjectSettingsPage() {
         start_command: project.start_command || '',
         python_framework: project.python_framework || '',
       })
+      setStagingEnabled(project.staging_enabled ?? false)
     }
   }, [project])
 
@@ -386,9 +389,102 @@ export default function ProjectSettingsPage() {
             </div>
           </div>
 
+          {/* Staging Environment */}
+          <div className="card p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <FlaskConical size={16} className="text-purple-600 dark:text-purple-400" />
+              <h2 className="text-sm font-semibold text-[--text-primary]">Staging 环境</h2>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded border-[--border] text-purple-600 focus:ring-purple-500"
+                    checked={stagingEnabled}
+                    onChange={(e) => {
+                      const enabled = e.target.checked
+                      setStagingEnabled(enabled)
+                      api.updateProject(Number(projectId), { staging_enabled: enabled }).then(() => {
+                        queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+                        toast(enabled ? 'Staging 环境已启用' : 'Staging 环境已关闭', 'success')
+                      }).catch(() => {
+                        setStagingEnabled(!enabled)
+                        toast('更新失败，请重试', 'error')
+                      })
+                    }}
+                  />
+                  <span className="text-sm font-medium text-[--text-secondary]">启用 Staging 环境</span>
+                </label>
+                <p className="text-xs text-[--text-tertiary] mt-1 ml-6">
+                  推送到 staging 分支时自动部署到独立的预览环境
+                </p>
+              </div>
+
+              {stagingEnabled && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-[--text-secondary] mb-1">Staging 域名</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        disabled
+                        className="input flex-1 opacity-60 cursor-not-allowed font-mono text-sm"
+                        value={project?.staging_domain || `${project?.slug}-staging.metavm.tech`}
+                      />
+                      {project?.staging_domain && (
+                        <a
+                          href={`https://${project.staging_domain}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-secondary text-sm flex items-center gap-1.5"
+                        >
+                          <ExternalLink size={14} />
+                          访问
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[--text-secondary] mb-1">访问密码</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="password"
+                        className="input flex-1 font-mono text-sm"
+                        value={stagingPassword}
+                        onChange={(e) => setStagingPassword(e.target.value)}
+                        placeholder="设置密码以保护 Staging 环境"
+                      />
+                      <button
+                        type="button"
+                        className="btn-secondary text-sm"
+                        disabled={!stagingPassword.trim()}
+                        onClick={() => {
+                          api.updateProject(Number(projectId), { staging_password: stagingPassword }).then(() => {
+                            queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+                            toast('Staging 密码已更新', 'success')
+                            setStagingPassword('')
+                          }).catch(() => {
+                            toast('更新失败，请重试', 'error')
+                          })
+                        }}
+                      >
+                        保存密码
+                      </button>
+                    </div>
+                    <p className="text-xs text-[--text-tertiary] mt-1">
+                      设置后，访问 Staging 站点需要输入密码。搜索引擎不会索引 Staging 页面。
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
           {/* Environment Variables */}
           <div className="card p-5">
-            <EnvironmentVariables projectId={Number(projectId)} />
+            <EnvironmentVariables projectId={Number(projectId)} stagingEnabled={stagingEnabled} />
           </div>
 
           {/* Custom Domains */}

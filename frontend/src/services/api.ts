@@ -111,8 +111,8 @@ class ApiService {
   }
 
   async triggerDeployment(projectId: number, branch?: string) {
-    const response = await this.client.post(`/projects/${projectId}/deploy`, {
-      branch,
+    const response = await this.client.post(`/projects/${projectId}/deploy`, null, {
+      params: branch ? { branch } : {},
     })
     return response.data
   }
@@ -226,12 +226,14 @@ class ApiService {
   }
 
   // Environment Variable endpoints
-  async listEnvVars(projectId: number) {
-    const response = await this.client.get(`/projects/${projectId}/env`)
+  async listEnvVars(projectId: number, environment: string = 'production') {
+    const response = await this.client.get(`/projects/${projectId}/env`, {
+      params: { environment },
+    })
     return response.data
   }
 
-  async createEnvVar(projectId: number, data: { key: string; value: string; is_secret: boolean }) {
+  async createEnvVar(projectId: number, data: { key: string; value: string; is_secret: boolean; environment?: string }) {
     const response = await this.client.post(`/projects/${projectId}/env`, data)
     return response.data
   }

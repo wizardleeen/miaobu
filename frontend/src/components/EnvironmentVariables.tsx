@@ -9,16 +9,19 @@ interface EnvVar {
   key: string
   value: string
   is_secret: boolean
+  environment: string
   created_at: string
   updated_at: string
 }
 
 interface Props {
   projectId: number
+  stagingEnabled?: boolean
 }
 
-export default function EnvironmentVariables({ projectId }: Props) {
+export default function EnvironmentVariables({ projectId, stagingEnabled }: Props) {
   const queryClient = useQueryClient()
+  const [activeEnvironment, setActiveEnvironment] = useState<string>('production')
   const [newKey, setNewKey] = useState('')
   const [newValue, setNewValue] = useState('')
   const [newIsSecret, setNewIsSecret] = useState(false)
@@ -31,15 +34,15 @@ export default function EnvironmentVariables({ projectId }: Props) {
   const [bulkError, setBulkError] = useState('')
 
   const { data: envVars = [], isLoading } = useQuery({
-    queryKey: ['env-vars', projectId],
-    queryFn: () => api.listEnvVars(projectId),
+    queryKey: ['env-vars', projectId, activeEnvironment],
+    queryFn: () => api.listEnvVars(projectId, activeEnvironment),
   })
 
   const createMutation = useMutation({
-    mutationFn: (data: { key: string; value: string; is_secret: boolean }) =>
+    mutationFn: (data: { key: string; value: string; is_secret: boolean; environment?: string }) =>
       api.createEnvVar(projectId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['env-vars', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['env-vars', projectId, activeEnvironment] })
       setNewKey('')
       setNewValue('')
       setNewIsSecret(false)
@@ -50,7 +53,7 @@ export default function EnvironmentVariables({ projectId }: Props) {
     mutationFn: ({ varId, data }: { varId: number; data: { value: string } }) =>
       api.updateEnvVar(projectId, varId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['env-vars', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['env-vars', projectId, activeEnvironment] })
       setEditingId(null)
       setEditValue('')
     },
@@ -59,13 +62,18 @@ export default function EnvironmentVariables({ projectId }: Props) {
   const deleteMutation = useMutation({
     mutationFn: (varId: number) => api.deleteEnvVar(projectId, varId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['env-vars', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['env-vars', projectId, activeEnvironment] })
     },
   })
 
   const handleAdd = () => {
     if (!newKey.trim() || !newValue.trim()) return
-    createMutation.mutate({ key: newKey.trim(), value: newValue, is_secret: newIsSecret })
+    createMutation.mutate({
+      key: newKey.trim(),
+      value: newValue,
+      is_secret: newIsSecret,
+      environment: activeEnvironment,
+    })
   }
 
   const handleUpdate = (varId: number) => {
@@ -107,13 +115,18 @@ export default function EnvironmentVariables({ projectId }: Props) {
     const errors: string[] = []
     for (const entry of entries) {
       try {
-        await api.createEnvVar(projectId, { key: entry.key, value: entry.value, is_secret: bulkIsSecret })
+        await api.createEnvVar(projectId, {
+          key: entry.key,
+          value: entry.value,
+          is_secret: bulkIsSecret,
+          environment: activeEnvironment,
+        })
         added++
       } catch {
         errors.push(entry.key)
       }
     }
-    queryClient.invalidateQueries({ queryKey: ['env-vars', projectId] })
+    queryClient.invalidateQueries({ queryKey: ['env-vars', projectId, activeEnvironment] })
     setBulkAdding(false)
     if (errors.length > 0) {
       setBulkError(`已添加 ${added} 个变量。以下变量添加失败（可能已存在）：${errors.join(', ')}`)
@@ -129,6 +142,26 @@ export default function EnvironmentVariables({ projectId }: Props) {
       <p className="text-xs text-[--text-secondary] mb-4">
         配置应用运行时使用的环境变量。敏感值（如密码、API 密钥）会自动加密存储。
       </p>
+
+      {/* Environment tabs */}
+      {stagingEnabled && (
+        <div className="flex bg-[--bg-tertiary] rounded-lg p-0.5 mb-4 w-fit">
+          <button
+            type="button"
+            onClick={() => setActiveEnvironment('production')}
+            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${activeEnvironment === 'production' ? 'bg-[--bg-elevated] shadow-sm text-[--text-primary] font-medium' : 'text-[--text-tertiary] hover:text-[--text-secondary]'}`}
+          >
+            Production
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveEnvironment('staging')}
+            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${activeEnvironment === 'staging' ? 'bg-purple-100 dark:bg-purple-500/20 shadow-sm text-purple-700 dark:text-purple-400 font-medium' : 'text-[--text-tertiary] hover:text-[--text-secondary]'}`}
+          >
+            Staging
+          </button>
+        </div>
+      )}
 
       {/* Existing variables */}
       {isLoading ? (
@@ -216,6 +249,9 @@ export default function EnvironmentVariables({ projectId }: Props) {
           <h3 className="text-xs font-semibold text-[--text-primary] flex items-center gap-1.5">
             <Plus size={14} />
             添加环境变量
+            {stagingEnabled && activeEnvironment === 'staging' && (
+              <span className="text-[10px] font-medium text-purple-600 dark:text-purple-400">(Staging)</span>
+            )}
           </h3>
           <div className="flex bg-[--bg-tertiary] rounded-lg p-0.5">
             <button

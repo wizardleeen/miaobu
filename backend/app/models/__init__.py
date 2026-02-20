@@ -102,6 +102,14 @@ class Project(Base):
     # Active deployment tracking
     active_deployment_id = Column(Integer, ForeignKey("deployments.id"), index=True)
 
+    # Staging environment
+    staging_enabled = Column(Boolean, default=False, nullable=False)
+    staging_deployment_id = Column(Integer, ForeignKey("deployments.id"), index=True)
+    staging_fc_function_name = Column(String(255))
+    staging_fc_endpoint_url = Column(String(512))
+    staging_domain = Column(String(255))
+    staging_password = Column(String(255))  # SHA-256 hex hash
+
     # Webhook
     webhook_id = Column(Integer)
     webhook_secret = Column(String(255))
@@ -117,6 +125,10 @@ class Project(Base):
     active_deployment = relationship(
         "Deployment",
         foreign_keys=[active_deployment_id],
+    )
+    staging_deployment = relationship(
+        "Deployment",
+        foreign_keys=[staging_deployment_id],
     )
 
     def __repr__(self):
@@ -150,6 +162,9 @@ class Deployment(Base):
     fc_function_name = Column(String(255))
     fc_function_version = Column(String(255))
     fc_image_uri = Column(String(512))
+
+    # Staging flag
+    is_staging = Column(Boolean, default=False, nullable=False)
 
     # Metadata
     build_time_seconds = Column(Integer)
@@ -240,7 +255,7 @@ class EnvironmentVariable(Base):
     """Environment variable model for project configuration."""
     __tablename__ = "environment_variables"
     __table_args__ = (
-        UniqueConstraint('project_id', 'key', name='uq_env_var_project_key'),
+        UniqueConstraint('project_id', 'key', 'environment', name='uq_env_var_project_key_env'),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -249,6 +264,7 @@ class EnvironmentVariable(Base):
     key = Column(String(255), nullable=False)
     value = Column(Text, nullable=False)  # Encrypted at rest
     is_secret = Column(Boolean, default=False, nullable=False)
+    environment = Column(String(20), default="production", nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

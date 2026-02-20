@@ -39,6 +39,7 @@ def _env_var_dict(ev: EnvironmentVariable) -> dict:
         "key": ev.key,
         "value": value,
         "is_secret": ev.is_secret,
+        "environment": ev.environment,
         "created_at": ev.created_at.isoformat(),
         "updated_at": ev.updated_at.isoformat(),
     }
@@ -47,6 +48,7 @@ def _env_var_dict(ev: EnvironmentVariable) -> dict:
 @router.get("/projects/{project_id}/env-vars")
 async def list_env_vars(
     project_id: int,
+    environment: str = "production",
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_flexible),
 ):
@@ -55,7 +57,10 @@ async def list_env_vars(
 
     env_vars = (
         db.query(EnvironmentVariable)
-        .filter(EnvironmentVariable.project_id == project_id)
+        .filter(
+            EnvironmentVariable.project_id == project_id,
+            EnvironmentVariable.environment == environment,
+        )
         .order_by(EnvironmentVariable.key)
         .all()
     )
@@ -66,6 +71,7 @@ class CreateEnvVarBody(BaseModel):
     key: str = Field(..., min_length=1, max_length=255)
     value: str
     is_secret: bool = False
+    environment: str = "production"
 
 
 @router.post("/projects/{project_id}/env-vars", status_code=201)
@@ -80,7 +86,11 @@ async def create_env_var(
 
     existing = (
         db.query(EnvironmentVariable)
-        .filter(EnvironmentVariable.project_id == project_id, EnvironmentVariable.key == body.key)
+        .filter(
+            EnvironmentVariable.project_id == project_id,
+            EnvironmentVariable.key == body.key,
+            EnvironmentVariable.environment == body.environment,
+        )
         .first()
     )
     if existing:
@@ -93,6 +103,7 @@ async def create_env_var(
         key=body.key,
         value=encrypt_value(body.value),
         is_secret=body.is_secret,
+        environment=body.environment,
     )
     db.add(env_var)
     db.commit()

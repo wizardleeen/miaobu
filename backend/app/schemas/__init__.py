@@ -90,6 +90,8 @@ class ProjectUpdate(BaseModel):
     python_version: Optional[str] = Field(None, max_length=20)
     start_command: Optional[str] = Field(None, max_length=512)
     python_framework: Optional[str] = Field(None, max_length=50)
+    staging_enabled: Optional[bool] = None
+    staging_password: Optional[str] = Field(None, max_length=255)
 
 
 class ProjectResponse(ProjectBase):
@@ -106,6 +108,9 @@ class ProjectResponse(ProjectBase):
     fc_function_name: Optional[str] = None
     fc_endpoint_url: Optional[str] = None
     active_deployment_id: Optional[int] = None
+    staging_enabled: bool = False
+    staging_deployment_id: Optional[int] = None
+    staging_domain: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -133,6 +138,7 @@ class DeploymentResponse(DeploymentBase):
     id: int
     project_id: int
     status: DeploymentStatus
+    is_staging: bool = False
     build_logs: Optional[str] = None
     error_message: Optional[str] = None
     oss_url: Optional[str] = None
@@ -195,7 +201,7 @@ class EnvironmentVariableBase(BaseModel):
 
 
 class EnvironmentVariableCreate(EnvironmentVariableBase):
-    pass
+    environment: str = Field(default="production")
 
 
 class EnvironmentVariableUpdate(BaseModel):
@@ -210,6 +216,7 @@ class EnvironmentVariableResponse(BaseModel):
     key: str
     value: str  # Masked for secrets
     is_secret: bool
+    environment: str = "production"
     created_at: datetime
     updated_at: datetime
 

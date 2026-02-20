@@ -10,6 +10,7 @@ interface Deployment {
   commit_message: string
   commit_author: string
   branch: string
+  is_staging?: boolean
   created_at: string
   deployed_at?: string
   error_message?: string
@@ -22,6 +23,7 @@ interface Deployment {
 interface DeploymentCardProps {
   deployment: Deployment
   activeDeploymentId?: number | null
+  stagingDeploymentId?: number | null
   isRollbackDisabled?: boolean
   onCancel?: (id: number) => void
   onRollback?: (id: number) => void
@@ -30,6 +32,7 @@ interface DeploymentCardProps {
 export default function DeploymentCard({
   deployment,
   activeDeploymentId,
+  stagingDeploymentId,
   isRollbackDisabled,
   onCancel,
   onRollback,
@@ -91,7 +94,9 @@ export default function DeploymentCard({
 
   const canCancel = ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(deployment.status)
   const isDeployed = deployment.status === 'deployed' && deployment.deployment_url
-  const isActive = activeDeploymentId === deployment.id
+  const isActive = deployment.is_staging
+    ? stagingDeploymentId === deployment.id
+    : activeDeploymentId === deployment.id
   const canRollback = deployment.status === 'deployed' && !isActive && onRollback
 
   return (
@@ -103,6 +108,11 @@ export default function DeploymentCard({
               {getStatusDot(deployment.status)}
               {getStatusLabel(deployment.status)}
             </span>
+            {deployment.is_staging && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 border border-purple-200 dark:border-purple-500/30">
+                Staging
+              </span>
+            )}
             {isActive && (
               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
                 当前

@@ -34,6 +34,10 @@ async def trigger_deployment(
 
     # Use specified branch or default branch
     deploy_branch = branch or project.default_branch
+    is_staging = (deploy_branch == "staging")
+
+    if is_staging and not project.staging_enabled:
+        raise HTTPException(status_code=400, detail="Staging is not enabled for this project")
 
     # Get latest commit info from GitHub
     try:
@@ -74,7 +78,8 @@ async def trigger_deployment(
         commit_message=commit_message,
         commit_author=commit_author,
         branch=deploy_branch,
-        status=DeploymentStatus.QUEUED
+        status=DeploymentStatus.QUEUED,
+        is_staging=is_staging,
     )
 
     db.add(deployment)
@@ -154,7 +159,8 @@ async def rollback_deployment(
         )
 
     # Cannot rollback to already-active deployment
-    if project.active_deployment_id == deployment.id:
+    active_id = project.staging_deployment_id if deployment.is_staging else project.active_deployment_id
+    if active_id == deployment.id:
         raise HTTPException(
             status_code=400,
             detail="This deployment is already active",

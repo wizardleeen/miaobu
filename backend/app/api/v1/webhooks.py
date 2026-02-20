@@ -89,8 +89,11 @@ async def github_webhook(
     ref = payload.get("ref", "")  # e.g., "refs/heads/main"
     branch = ref.replace("refs/heads/", "")
 
-    # Filter: Only deploy if push is to the default branch
-    if branch != project.default_branch:
+    # Filter: deploy if push is to default branch or staging branch (when enabled)
+    is_production = (branch == project.default_branch)
+    is_staging = (branch == "staging" and project.staging_enabled)
+
+    if not is_production and not is_staging:
         return {
             "status": "ignored",
             "message": f"Push to '{branch}' ignored (only '{project.default_branch}' triggers deployment)",
@@ -105,10 +108,11 @@ async def github_webhook(
     if not commit_sha:
         raise BadRequestException("No commit SHA found in push event")
 
-    # Check if deployment for this commit already exists
+    # Check if deployment for this commit already exists (scoped by staging flag)
     existing = db.query(Deployment).filter(
         Deployment.project_id == project_id,
-        Deployment.commit_sha == commit_sha
+        Deployment.commit_sha == commit_sha,
+        Deployment.is_staging == is_staging,
     ).first()
 
     if existing:
@@ -126,6 +130,7 @@ async def github_webhook(
         commit_author=commit_author,
         branch=branch,
         status=DeploymentStatus.QUEUED,
+        is_staging=is_staging,
     )
 
     db.add(deployment)

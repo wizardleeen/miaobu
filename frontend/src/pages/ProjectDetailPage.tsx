@@ -5,7 +5,7 @@ import { api } from '../services/api'
 import Layout from '../components/Layout'
 import { useToast } from '../components/Toast'
 import DeploymentCard from '../components/DeploymentCard'
-import { Rocket, Settings, Check, ExternalLink } from 'lucide-react'
+import { Rocket, Settings, Check, ExternalLink, FlaskConical } from 'lucide-react'
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -13,7 +13,9 @@ export default function ProjectDetailPage() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const [isDeploying, setIsDeploying] = useState(false)
+  const [isStagingDeploying, setIsStagingDeploying] = useState(false)
   const [isRollingBack, setIsRollingBack] = useState(false)
+  const [deployFilter, setDeployFilter] = useState<'all' | 'production' | 'staging'>('all')
 
   const { data: project, isLoading, refetch } = useQuery({
     queryKey: ['project', projectId],
@@ -23,14 +25,16 @@ export default function ProjectDetailPage() {
   })
 
   const deployMutation = useMutation({
-    mutationFn: () => api.triggerDeployment(Number(projectId)),
+    mutationFn: (branch?: string) => api.triggerDeployment(Number(projectId), branch),
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       await refetch()
       setIsDeploying(false)
+      setIsStagingDeploying(false)
     },
     onError: () => {
       setIsDeploying(false)
+      setIsStagingDeploying(false)
       toast('触发部署失败，请重试', 'error')
     },
   })
@@ -61,6 +65,11 @@ export default function ProjectDetailPage() {
   const handleDeploy = () => {
     setIsDeploying(true)
     deployMutation.mutate()
+  }
+
+  const handleStagingDeploy = () => {
+    setIsStagingDeploying(true)
+    deployMutation.mutate('staging')
   }
 
   const handleCancel = (deploymentId: number) => {
@@ -95,8 +104,18 @@ export default function ProjectDetailPage() {
   }
 
   const hasActiveDeployment = project.deployments?.some((d: any) =>
-    ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(d.status)
+    ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(d.status) && !d.is_staging
   )
+
+  const hasActiveStagingDeployment = project.deployments?.some((d: any) =>
+    ['queued', 'cloning', 'building', 'uploading', 'deploying'].includes(d.status) && d.is_staging
+  )
+
+  const filteredDeployments = project.deployments?.filter((d: any) => {
+    if (deployFilter === 'production') return !d.is_staging
+    if (deployFilter === 'staging') return d.is_staging
+    return true
+  }) || []
 
   return (
     <Layout>
@@ -106,6 +125,16 @@ export default function ProjectDetailPage() {
           <p className="text-sm text-[--text-secondary]">{project.github_repo_name}</p>
         </div>
         <div className="flex gap-2">
+          {project.staging_enabled && (
+            <button
+              onClick={handleStagingDeploy}
+              disabled={isStagingDeploying || hasActiveStagingDeployment}
+              className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg font-medium border border-purple-300 dark:border-purple-500/30 text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FlaskConical size={16} />
+              {isStagingDeploying ? '部署中...' : hasActiveStagingDeployment ? '构建中' : 'Staging'}
+            </button>
+          )}
           <button
             onClick={handleDeploy}
             disabled={isDeploying || hasActiveDeployment}
@@ -219,6 +248,22 @@ export default function ProjectDetailPage() {
                 </a>
               </p>
             </div>
+            {project.staging_enabled && project.staging_domain && (
+              <div>
+                <label className="text-xs text-[--text-tertiary]">Staging 域名</label>
+                <p className="text-sm mt-0.5">
+                  <a
+                    href={`https://${project.staging_domain}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 inline-flex items-center gap-1"
+                  >
+                    {project.staging_domain}
+                    <ExternalLink size={12} />
+                  </a>
+                </p>
+              </div>
+            )}
             <div>
               <label className="text-xs text-[--text-tertiary]">默认分支</label>
               <p className="text-sm text-[--text-primary] mt-0.5">{project.default_branch}</p>
@@ -260,15 +305,43 @@ export default function ProjectDetailPage() {
       </div>
 
       <div className="card p-6">
-        <h2 className="text-lg font-semibold text-[--text-primary] mb-4">部署记录</h2>
-        {project.deployments && project.deployments.length > 0 ? (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-[--text-primary]">部署记录</h2>
+          {project.staging_enabled && (
+            <div className="flex bg-[--bg-tertiary] rounded-lg p-0.5">
+              <button
+                type="button"
+                onClick={() => setDeployFilter('all')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${deployFilter === 'all' ? 'bg-[--bg-elevated] shadow-sm text-[--text-primary] font-medium' : 'text-[--text-tertiary] hover:text-[--text-secondary]'}`}
+              >
+                全部
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeployFilter('production')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${deployFilter === 'production' ? 'bg-[--bg-elevated] shadow-sm text-[--text-primary] font-medium' : 'text-[--text-tertiary] hover:text-[--text-secondary]'}`}
+              >
+                Production
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeployFilter('staging')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${deployFilter === 'staging' ? 'bg-purple-100 dark:bg-purple-500/20 shadow-sm text-purple-700 dark:text-purple-400 font-medium' : 'text-[--text-tertiary] hover:text-[--text-secondary]'}`}
+              >
+                Staging
+              </button>
+            </div>
+          )}
+        </div>
+        {filteredDeployments.length > 0 ? (
           <div className="divide-y divide-[--border-primary]">
-            {project.deployments.map((deployment: any) => (
+            {filteredDeployments.map((deployment: any) => (
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
                 activeDeploymentId={project.active_deployment_id}
-                isRollbackDisabled={isRollingBack || hasActiveDeployment}
+                stagingDeploymentId={project.staging_deployment_id}
+                isRollbackDisabled={isRollingBack || hasActiveDeployment || hasActiveStagingDeployment}
                 onCancel={handleCancel}
                 onRollback={handleRollback}
               />

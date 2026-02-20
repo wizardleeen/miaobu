@@ -1,3 +1,5 @@
+import hashlib
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
@@ -43,8 +45,15 @@ def generate_slug(name: str, user_id: int, db: Session) -> str:
 
     # Check global uniqueness across ALL projects (not just this user)
     counter = 1
-    while db.query(Project).filter(Project.slug == slug).first():
-        slug = f"{base_slug}{counter}"  # app, app1, app2 (no hyphen for cleaner subdomain)
+    while True:
+        # Reject slugs ending in -staging to prevent collision with staging subdomains
+        if slug.endswith('-staging'):
+            slug = f"{base_slug}{counter}"
+            counter += 1
+            continue
+        if not db.query(Project).filter(Project.slug == slug).first():
+            break
+        slug = f"{base_slug}{counter}"
         counter += 1
 
     return slug
@@ -327,8 +336,31 @@ async def update_project(
     # Update fields if provided
     update_data = project_data.model_dump(exclude_unset=True)
     is_spa_changed = "is_spa" in update_data and update_data["is_spa"] != project.is_spa
+
+    settings = get_settings()
+
+    # Handle staging_password specially: hash before storing
+    staging_password_raw = update_data.pop("staging_password", None)
+    if staging_password_raw is not None:
+        if staging_password_raw:
+            project.staging_password = hashlib.sha256(staging_password_raw.encode()).hexdigest()
+        else:
+            project.staging_password = None
+
+    # Handle staging_enabled specially
+    staging_enabled_changed = "staging_enabled" in update_data
+    new_staging_enabled = update_data.get("staging_enabled")
+
     for field, value in update_data.items():
         setattr(project, field, value)
+
+    # When staging is enabled, compute staging domain
+    if staging_enabled_changed and new_staging_enabled:
+        project.staging_domain = f"{project.slug}-staging.{settings.cdn_base_domain}"
+
+    # When staging is disabled, clean up staging resources
+    if staging_enabled_changed and not new_staging_enabled:
+        _cleanup_staging(project, db)
 
     db.commit()
     db.refresh(project)
@@ -338,6 +370,35 @@ async def update_project(
         _refresh_edge_kv_on_spa_change(project, db)
 
     return project
+
+
+def _cleanup_staging(project: Project, db: Session) -> None:
+    """Clean up staging resources when staging is disabled."""
+    settings = get_settings()
+    esa_service = ESAService()
+
+    # Delete staging Edge KV entry
+    staging_domain = f"{project.slug}-staging.{settings.cdn_base_domain}"
+    try:
+        esa_service.delete_edge_kv(staging_domain)
+    except Exception as e:
+        logger.warning(f"Failed to delete staging Edge KV for {staging_domain}: {e}")
+
+    # Delete staging FC function if exists
+    if project.staging_fc_function_name:
+        try:
+            from ...services.fc import FCService
+            fc_service = FCService()
+            fc_service.delete_function(project.staging_fc_function_name)
+        except Exception as e:
+            logger.warning(f"Failed to delete staging FC function {project.staging_fc_function_name}: {e}")
+
+    # Clear staging fields
+    project.staging_deployment_id = None
+    project.staging_fc_function_name = None
+    project.staging_fc_endpoint_url = None
+    project.staging_domain = None
+    project.staging_password = None
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -381,6 +442,13 @@ async def delete_project(
     except Exception as e:
         logger.warning(f"Failed to delete subdomain Edge KV: {e}")
 
+    # Delete staging Edge KV
+    if project.staging_enabled:
+        try:
+            esa_service.delete_edge_kv(f"{project.slug}-staging.{settings.cdn_base_domain}")
+        except Exception as e:
+            logger.warning(f"Failed to delete staging Edge KV: {e}")
+
     # Delete all OSS files for the project
     try:
         oss_service = OSSService()
@@ -409,6 +477,15 @@ async def delete_project(
             fc_service.delete_function(project.fc_function_name)
         except Exception as e:
             logger.warning(f"Failed to delete FC function {project.fc_function_name}: {e}")
+
+    # Clean up staging FC function
+    if project.staging_fc_function_name:
+        try:
+            from ...services.fc import FCService
+            fc_service = FCService()
+            fc_service.delete_function(project.staging_fc_function_name)
+        except Exception as e:
+            logger.warning(f"Failed to delete staging FC function {project.staging_fc_function_name}: {e}")
 
     db.delete(project)
     db.commit()
