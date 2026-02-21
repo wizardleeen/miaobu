@@ -45,6 +45,7 @@ dist-ssr/
 .env.local
 .env.*.local
 backend/.env.staging
+frontend/.env.staging
 
 # Database
 *.db
