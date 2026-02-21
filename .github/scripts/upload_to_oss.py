@@ -20,9 +20,9 @@ import oss2
 # OSS transfer acceleration endpoint (works well from GitHub Actions outside China)
 ACCELERATE_ENDPOINT = "oss-accelerate.aliyuncs.com"
 
-# Buckets
-STATIC_BUCKET = "miaobu-deployments"       # Hangzhou
-PYTHON_BUCKET = "miaobu-deployments-qingdao"  # Qingdao
+# Buckets (overridable via env for staging)
+STATIC_BUCKET = os.environ.get("MIAOBU_STATIC_BUCKET", "miaobu-deployments")
+PYTHON_BUCKET = os.environ.get("MIAOBU_FC_BUCKET", "miaobu-deployments-qingdao")
 
 # Text extensions to gzip
 GZIP_EXTENSIONS = {
