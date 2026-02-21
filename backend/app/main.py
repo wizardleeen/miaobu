@@ -25,8 +25,6 @@ app = FastAPI(
 allowed_origins = [
     settings.frontend_url,
     "http://localhost:5173",
-    "https://app.metavm.tech",
-    "https://miaobu.metavm.tech",
 ]
 
 app.add_middleware(

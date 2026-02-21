@@ -3,7 +3,7 @@
 Deploy edge-routine.js to Aliyun ESA production.
 
 Usage:
-  docker exec miaobu-backend python /app/../scripts/deploy-edge-routine.py
+  cd /path/to/miaobu && PYTHONPATH=backend python scripts/deploy-edge-routine.py
 
 Flow:
   1. GetRoutineStagingCodeUploadInfo → get OSS upload credentials
@@ -23,10 +23,12 @@ from aliyunsdkcore.client import AcsClient
 from aliyunsdkcore.request import CommonRequest
 from app.config import get_settings
 
-ROUTINE_NAME = 'miaobu-router'
 CODE_FILE = Path(__file__).parent.parent / 'edge-routine.js'
 
 settings = get_settings()
+
+# Derive routine name from fc_function_prefix (e.g., "miaobu" -> "miaobu-router", "kyvy" -> "kyvy-router")
+ROUTINE_NAME = f'{settings.miaobu_fc_prefix}-router'
 
 
 def esa_request(client, action, params):
@@ -53,8 +55,15 @@ def main():
         print(f'Error: {CODE_FILE} not found')
         sys.exit(1)
 
-    code = CODE_FILE.read_text()
+    raw_code = CODE_FILE.read_text()
+
+    # Template-replace placeholders with values from settings
+    code = raw_code.replace('__BASE_DOMAIN__', settings.cdn_base_domain)
+    code = code.replace('__KV_NAMESPACE__', settings.aliyun_esa_edge_kv_namespace)
     print(f'Code: {CODE_FILE.name} ({len(code)} bytes)')
+    print(f'  BASE_DOMAIN = {settings.cdn_base_domain}')
+    print(f'  KV_NAMESPACE = {settings.aliyun_esa_edge_kv_namespace}')
+    print(f'  ROUTINE_NAME = {ROUTINE_NAME}')
 
     client = AcsClient(
         settings.aliyun_access_key_id,

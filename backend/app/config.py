@@ -44,12 +44,14 @@ class Settings(BaseSettings):
     aliyun_esa_cname_target: str = "cname.metavm.tech"
     aliyun_esa_edge_kv_namespace_id: str = "961854465965670400"
     aliyun_esa_edge_kv_namespace: str = "miaobu"
+    aliyun_esa_cname_record_id: str = ""  # ESA CNAME DNS record ID for CreateCustomHostname
 
     # Function Compute Configuration (cn-qingdao for co-location with server)
     aliyun_account_id: str = ""
     aliyun_fc_region: str = "cn-qingdao"
     aliyun_fc_oss_bucket: str = "miaobu-deployments-qingdao"
     aliyun_fc_oss_endpoint: str = "oss-cn-qingdao.aliyuncs.com"
+    miaobu_fc_prefix: str = "miaobu"  # FC function name prefix ("kyvy" for staging)
     aliyun_fc_service_name: str = "miaobu"
     aliyun_acr_registry: str = ""  # e.g., "registry.cn-hangzhou.aliyuncs.com"
     aliyun_acr_namespace: str = "miaobu"

@@ -62,6 +62,9 @@ async def trigger_build(project: Project, deployment: Deployment) -> Dict[str, A
             "commit_sha": deployment.commit_sha,
             "project_slug": project.slug,
             "build_config": build_config,
+            "api_url": settings.backend_url,
+            "static_bucket": settings.aliyun_oss_bucket,
+            "fc_bucket": settings.aliyun_fc_oss_bucket,
         },
     }
 

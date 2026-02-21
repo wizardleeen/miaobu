@@ -208,7 +208,7 @@ class ESAService:
         params = {
             'SiteId': self.site_id,
             'Hostname': domain,
-            'RecordId': '4513850898327424',  # cname.metavm.tech DNS record ID
+            'RecordId': settings.aliyun_esa_cname_record_id,
             'SslFlag': 'off',  # Must be 'off' during creation
             'CertificateId': '0'  # Placeholder for auto SSL
         }
@@ -647,7 +647,7 @@ class ESAService:
         Returns:
             Provisioning result
         """
-        is_metavm_subdomain = domain.endswith('.metavm.tech') or domain == 'metavm.tech'
+        is_metavm_subdomain = domain.endswith(f'.{settings.cdn_base_domain}') or domain == settings.cdn_base_domain
         custom_hostname_id = None
 
         # Step 1: Create Custom Hostname (only for external domains)
@@ -693,9 +693,9 @@ class ESAService:
             result['message'] = f'Edge KV configured for {domain}. Add domain to ESA site via console.'
             result['manual_step_required'] = True
             result['instructions'] = {
-                'note': 'metavm.tech subdomains must be added via ESA Console',
+                'note': f'{settings.cdn_base_domain} subdomains must be added via ESA Console',
                 'url': 'https://esa.console.aliyun.com/',
-                'action': f'Add {domain} to site metavm.tech'
+                'action': f'Add {domain} to site {settings.cdn_base_domain}'
             }
         else:
             result['message'] = f'Custom domain {domain} provisioned successfully'

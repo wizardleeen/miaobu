@@ -44,6 +44,8 @@ dist-ssr/
 .env
 .env.local
 .env.*.local
+backend/.env.staging
+frontend/.env.staging
 
 # Database
 *.db
@@ -56,9 +58,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
-
-# Docker
-.docker/
 
 # Build artifacts
 build-cache/
