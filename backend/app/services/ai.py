@@ -601,7 +601,7 @@ async def stream_chat(
         import httpx as _httpx
         client_kwargs["http_client"] = _httpx.Client(
             proxy=settings.http_proxy,
-            timeout=120.0,
+            timeout=600.0,
         )
     client = anthropic.Anthropic(**client_kwargs)
 
