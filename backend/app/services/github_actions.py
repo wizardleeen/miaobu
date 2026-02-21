@@ -63,7 +63,6 @@ async def trigger_build(project: Project, deployment: Deployment) -> Dict[str, A
             "project_slug": project.slug,
             "build_config": build_config,
             "api_url": settings.backend_url,
-            "callback_secret_env": "STAGING" if settings.environment == "staging" else "PROD",
             "static_bucket": settings.aliyun_oss_bucket,
             "fc_bucket": settings.aliyun_fc_oss_bucket,
         },
