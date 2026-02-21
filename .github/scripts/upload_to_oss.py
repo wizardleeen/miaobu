@@ -21,8 +21,8 @@ import oss2
 ACCELERATE_ENDPOINT = "oss-accelerate.aliyuncs.com"
 
 # Buckets (overridable via env for staging)
-STATIC_BUCKET = os.environ.get("MIAOBU_STATIC_BUCKET", "miaobu-deployments")
-PYTHON_BUCKET = os.environ.get("MIAOBU_FC_BUCKET", "miaobu-deployments-qingdao")
+STATIC_BUCKET = os.environ.get("ALIYUN_OSS_BUCKET", "miaobu-deployments")
+FC_BUCKET = os.environ.get("ALIYUN_FC_OSS_BUCKET", "miaobu-deployments-qingdao")
 
 # Text extensions to gzip
 GZIP_EXTENSIONS = {
@@ -94,7 +94,7 @@ def upload_static(output_dir: str, slug: str, deployment_id: str):
 def upload_fc_package(zip_path: str, slug: str, deployment_id: str):
     """Upload a code package zip (Python or Node.js) to OSS."""
     auth = oss2.Auth(os.environ["ALIYUN_AK_ID"], os.environ["ALIYUN_AK_SECRET"])
-    bucket = oss2.Bucket(auth, ACCELERATE_ENDPOINT, PYTHON_BUCKET)
+    bucket = oss2.Bucket(auth, ACCELERATE_ENDPOINT, FC_BUCKET)
 
     zp = Path(zip_path)
     if not zp.is_file():

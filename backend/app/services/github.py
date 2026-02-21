@@ -47,6 +47,8 @@ class GitHubService:
             )
             response.raise_for_status()
             data = response.json()
+            if data.get("error"):
+                raise Exception(f"GitHub OAuth error: {data.get('error')} - {data.get('error_description', '')}")
             return data.get("access_token")
 
     @staticmethod

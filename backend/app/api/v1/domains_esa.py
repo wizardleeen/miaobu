@@ -164,7 +164,7 @@ async def verify_custom_domain(
         }
 
     # Step 1b: Verify CNAME record points to correct target
-    cname_target = domain.cname_target or "cname.metavm.tech"
+    cname_target = domain.cname_target or settings.aliyun_esa_cname_target
     cname_verification = DNSService.verify_cname_record(
         domain.domain,
         cname_target
@@ -248,7 +248,7 @@ async def verify_custom_domain(
                 icp_required = True
 
     # Step 5: Update database (DNS ownership confirmed, ESA resources created)
-    is_metavm_subdomain = domain.domain.endswith('.metavm.tech') or domain.domain == 'metavm.tech'
+    is_base_subdomain = domain.domain.endswith(f'.{settings.cdn_base_domain}') or domain.domain == settings.cdn_base_domain
 
     domain.is_verified = True
     domain.verified_at = datetime.now(timezone.utc)
@@ -258,8 +258,8 @@ async def verify_custom_domain(
     domain.edge_kv_synced = True
     domain.edge_kv_synced_at = datetime.now(timezone.utc)
 
-    # For *.metavm.tech subdomains, SSL is already active via wildcard cert
-    if is_metavm_subdomain:
+    # For *.{base_domain} subdomains, SSL is already active via wildcard cert
+    if is_base_subdomain:
         domain.ssl_status = SSLStatus.ACTIVE
     else:
         domain.ssl_status = SSLStatus.VERIFYING
@@ -276,7 +276,7 @@ async def verify_custom_domain(
         "ssl_status": domain.ssl_status.value,
     }
 
-    if is_metavm_subdomain:
+    if is_base_subdomain:
         response["ssl_note"] = "SSL is active via wildcard certificate."
     else:
         response["ssl_note"] = "SSL certificate is being provisioned by Aliyun ESA. This may take 5-30 minutes. Use the 'Refresh SSL Status' button to check progress."
@@ -292,12 +292,12 @@ async def verify_custom_domain(
         }
     else:
         response["message"] = "Domain verified and provisioned successfully." + (
-            " SSL is active via wildcard certificate." if is_metavm_subdomain
+            " SSL is active via wildcard certificate." if is_base_subdomain
             else " SSL certificate will be issued automatically."
         )
         response["instructions"] = {
             "next_step": f"Add CNAME record: {domain.domain} → {domain.cname_target}",
-            "note": "SSL is already active." if is_metavm_subdomain
+            "note": "SSL is already active." if is_base_subdomain
             else "SSL certificate will be automatically provisioned by ESA (may take a few minutes)"
         }
 
@@ -331,9 +331,9 @@ async def refresh_ssl_status(
             "message": "Domain is not verified yet. Verify domain first."
         }
 
-    # For *.metavm.tech subdomains, SSL is always active via wildcard cert
-    is_metavm_subdomain = domain.domain.endswith('.metavm.tech') or domain.domain == 'metavm.tech'
-    if is_metavm_subdomain:
+    # For *.{base_domain} subdomains, SSL is always active via wildcard cert
+    is_base_subdomain = domain.domain.endswith(f'.{settings.cdn_base_domain}') or domain.domain == settings.cdn_base_domain
+    if is_base_subdomain:
         domain.ssl_status = SSLStatus.ACTIVE
         db.commit()
         return {
@@ -342,7 +342,7 @@ async def refresh_ssl_status(
             "ssl_status": SSLStatus.ACTIVE.value,
             "esa_status": domain.esa_status,
             "is_https_ready": True,
-            "message": "SSL is active via wildcard certificate for *.metavm.tech"
+            "message": f"SSL is active via wildcard certificate for *.{settings.cdn_base_domain}"
         }
 
     if not domain.esa_saas_id:

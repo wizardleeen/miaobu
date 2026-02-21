@@ -135,7 +135,8 @@ async def verify_domain(
         raise HTTPException(status_code=400, detail="TXT record verification failed. Please add the DNS TXT record.")
 
     # Verify CNAME record
-    cname_target = domain.cname_target or "cname.metavm.tech"
+    settings = get_settings()
+    cname_target = domain.cname_target or settings.aliyun_esa_cname_target
     cname_result = DNSService.verify_cname_record(domain.domain, cname_target)
     if not cname_result.get("verified"):
         raise HTTPException(status_code=400, detail="CNAME record not configured correctly.")
@@ -175,7 +176,7 @@ async def verify_domain(
         if status_result.get("success") and status_result.get("icp_required"):
             icp_required = True
 
-    is_metavm = domain.domain.endswith(".metavm.tech") or domain.domain == "metavm.tech"
+    is_metavm = domain.domain.endswith(f".{settings.cdn_base_domain}") or domain.domain == settings.cdn_base_domain
     domain.is_verified = True
     domain.verified_at = datetime.now(timezone.utc)
     domain.esa_saas_id = custom_hostname_id
