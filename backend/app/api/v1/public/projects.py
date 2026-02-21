@@ -162,12 +162,46 @@ async def delete_project(
     except Exception:
         pass
 
-    if project.project_type in ("python", "node") and project.fc_function_name:
+    if project.project_type in ("python", "node"):
+        from ....services.fc import FCService
+        from ....services.alidns import AliDNSService
+        fc_svc = FCService()
+        dns_svc = AliDNSService()
+
+        if project.fc_function_name:
+            try:
+                fc_svc.delete_function(project.fc_function_name)
+            except Exception:
+                pass
+
+        # Clean up FC custom domain + DNS CNAME for production subdomain
+        prod_subdomain = f"{project.slug}.{settings.cdn_base_domain}"
         try:
-            from ....services.fc import FCService
-            FCService().delete_function(project.fc_function_name)
+            fc_svc.delete_custom_domain(prod_subdomain)
         except Exception:
             pass
+        try:
+            dns_svc.delete_cname_record(prod_subdomain)
+        except Exception:
+            pass
+
+        # Clean up staging FC resources if enabled
+        if project.staging_enabled:
+            staging_subdomain = f"{project.slug}-staging.{settings.cdn_base_domain}"
+            if project.staging_fc_function_name:
+                try:
+                    fc_svc.delete_function(project.staging_fc_function_name)
+                except Exception:
+                    pass
+            try:
+                fc_svc.delete_custom_domain(staging_subdomain)
+            except Exception:
+                pass
+            try:
+                dns_svc.delete_cname_record(staging_subdomain)
+            except Exception:
+                pass
+
         try:
             fc_oss = OSSService(
                 bucket_name=settings.aliyun_fc_oss_bucket,

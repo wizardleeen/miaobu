@@ -1,6 +1,7 @@
 import asyncio
+import base64
 import httpx
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from ..config import get_settings
 
 settings = get_settings()
@@ -379,6 +380,131 @@ class GitHubService:
             "root_directory": root_directory,
             "project_type": project_type,
         }
+
+    @staticmethod
+    async def create_repository(
+        access_token: str, name: str, description: str = "", private: bool = False, auto_init: bool = True
+    ) -> Dict[str, Any]:
+        """Create a new GitHub repository under the authenticated user's account."""
+        async with GitHubService._get_client() as client:
+            response = await client.post(
+                f"{GitHubService.GITHUB_API_URL}/user/repos",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                json={
+                    "name": name,
+                    "description": description,
+                    "private": private,
+                    "auto_init": auto_init,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+    @staticmethod
+    async def commit_files(
+        access_token: str, owner: str, repo: str, branch: str,
+        files: List[Dict[str, Any]], commit_message: str
+    ) -> Dict[str, Any]:
+        """
+        Commit multiple files in a single commit using the Git Trees API.
+
+        Args:
+            files: List of {"path": "...", "content": "..."} dicts.
+                   content=None means delete the file.
+        """
+        async with GitHubService._get_client(timeout=60.0) as client:
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+
+            # 1. Get the current branch ref
+            ref_response = await client.get(
+                f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/git/ref/heads/{branch}",
+                headers=headers,
+            )
+            ref_response.raise_for_status()
+            current_sha = ref_response.json()["object"]["sha"]
+
+            # 2. Get the current commit's tree SHA
+            commit_response = await client.get(
+                f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/git/commits/{current_sha}",
+                headers=headers,
+            )
+            commit_response.raise_for_status()
+            base_tree_sha = commit_response.json()["tree"]["sha"]
+
+            # 3. Create blobs for each file and build tree entries
+            tree_items = []
+            for file in files:
+                if file.get("content") is None:
+                    # Delete file by omitting from tree (handled by not using base_tree for this path)
+                    tree_items.append({
+                        "path": file["path"],
+                        "mode": "100644",
+                        "type": "blob",
+                        "sha": None,
+                    })
+                else:
+                    # Create blob
+                    blob_response = await client.post(
+                        f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/git/blobs",
+                        headers=headers,
+                        json={
+                            "content": file["content"],
+                            "encoding": "utf-8",
+                        },
+                    )
+                    blob_response.raise_for_status()
+                    blob_sha = blob_response.json()["sha"]
+                    tree_items.append({
+                        "path": file["path"],
+                        "mode": "100644",
+                        "type": "blob",
+                        "sha": blob_sha,
+                    })
+
+            # 4. Create new tree with base_tree
+            tree_response = await client.post(
+                f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/git/trees",
+                headers=headers,
+                json={
+                    "base_tree": base_tree_sha,
+                    "tree": tree_items,
+                },
+            )
+            tree_response.raise_for_status()
+            new_tree_sha = tree_response.json()["sha"]
+
+            # 5. Create commit
+            new_commit_response = await client.post(
+                f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/git/commits",
+                headers=headers,
+                json={
+                    "message": commit_message,
+                    "tree": new_tree_sha,
+                    "parents": [current_sha],
+                },
+            )
+            new_commit_response.raise_for_status()
+            new_commit_sha = new_commit_response.json()["sha"]
+
+            # 6. Update branch ref
+            update_ref_response = await client.patch(
+                f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/git/refs/heads/{branch}",
+                headers=headers,
+                json={"sha": new_commit_sha},
+            )
+            update_ref_response.raise_for_status()
+
+            return {
+                "sha": new_commit_sha,
+                "message": commit_message,
+                "files_changed": len(files),
+            }
 
     @staticmethod
     async def search_repositories(

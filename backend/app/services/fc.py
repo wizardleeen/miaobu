@@ -64,7 +64,7 @@ class FCService:
         python_version: str = "3.10",
         env_vars: Optional[Dict[str, str]] = None,
         memory_mb: int = 512,
-        timeout: int = 60,
+        timeout: int = 600,
     ) -> Dict[str, Any]:
         """
         Create or update an FC function with code from OSS.
@@ -195,7 +195,7 @@ class FCService:
         start_command: str,
         env_vars: Optional[Dict[str, str]] = None,
         memory_mb: int = 512,
-        timeout: int = 60,
+        timeout: int = 600,
     ) -> Dict[str, Any]:
         """
         Create or update an FC function for a Node.js backend app.
@@ -449,6 +449,120 @@ class FCService:
     def get_function_endpoint(self, name: str) -> Optional[str]:
         """Get the HTTP endpoint URL for a function."""
         return self._get_trigger_url(name)
+
+    # ------------------------------------------------------------------
+    # FC Custom Domain management
+    # ------------------------------------------------------------------
+
+    def _build_cert_config(self) -> Optional[fc_models.CertConfig]:
+        """Build CertConfig from settings, or None if not configured.
+
+        FC requires the private key in traditional PEM format
+        (``BEGIN RSA PRIVATE KEY``), not PKCS#8 (``BEGIN PRIVATE KEY``).
+        Env vars may use literal ``\\n`` for newlines, so we normalise first.
+        """
+        settings = self.settings
+        if not (settings.miaobu_wildcard_cert_pem and settings.miaobu_wildcard_cert_key):
+            return None
+        cert = settings.miaobu_wildcard_cert_pem.replace("\\n", "\n")
+        key = settings.miaobu_wildcard_cert_key.replace("\\n", "\n")
+        return fc_models.CertConfig(
+            cert_name=settings.miaobu_wildcard_cert_name or "wildcard",
+            certificate=cert,
+            private_key=key,
+        )
+
+    @property
+    def fc_cname_target(self) -> str:
+        """The CNAME target that FC requires custom domains to resolve to."""
+        return f"{self.account_id}.{self.region}.fc.aliyuncs.com"
+
+    def create_or_update_custom_domain(
+        self, domain_name: str, function_name: str
+    ) -> Dict[str, Any]:
+        """
+        Create or update an FC custom domain so that *domain_name* routes
+        directly to *function_name* over HTTPS (using the wildcard cert).
+
+        On ``CustomDomainAlreadyExists`` the domain is updated instead.
+
+        Prerequisites:
+          - DNS CNAME for *domain_name* must already resolve to
+            ``{account_id}.{fc_region}.fc.aliyuncs.com``.
+          - The private key must be in traditional RSA PEM format.
+          - Do NOT pass ``tls_config`` — FC uses sensible defaults.
+        """
+        cert_config = self._build_cert_config()
+        protocol = "HTTPS" if cert_config else "HTTP"
+
+        route_config = fc_models.RouteConfig(
+            routes=[
+                fc_models.PathConfig(
+                    path="/*",
+                    function_name=function_name,
+                    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+                )
+            ]
+        )
+
+        try:
+            create_input = fc_models.CreateCustomDomainInput(
+                domain_name=domain_name,
+                protocol=protocol,
+                cert_config=cert_config,
+                route_config=route_config,
+            )
+            self.client.create_custom_domain(
+                fc_models.CreateCustomDomainRequest(body=create_input)
+            )
+            print(f"FC: Created custom domain {domain_name} -> {function_name}")
+            return {"success": True, "domain_name": domain_name}
+
+        except Exception as e:
+            if "CustomDomainAlreadyExists" in str(e):
+                try:
+                    update_input = fc_models.UpdateCustomDomainInput(
+                        protocol=protocol,
+                        cert_config=cert_config,
+                        route_config=route_config,
+                    )
+                    self.client.update_custom_domain(
+                        domain_name,
+                        fc_models.UpdateCustomDomainRequest(body=update_input),
+                    )
+                    print(f"FC: Updated custom domain {domain_name} -> {function_name}")
+                    return {"success": True, "domain_name": domain_name}
+                except Exception as ue:
+                    print(f"FC: Error updating custom domain {domain_name}: {ue}")
+                    return {"success": False, "error": str(ue)}
+
+            print(f"FC: Error creating custom domain {domain_name}: {e}")
+            return {"success": False, "error": str(e)}
+
+    def delete_custom_domain(self, domain_name: str) -> Dict[str, Any]:
+        """Delete an FC custom domain.  Gracefully ignores 'not found'."""
+        try:
+            self.client.delete_custom_domain(domain_name)
+            print(f"FC: Deleted custom domain {domain_name}")
+            return {"success": True, "domain_name": domain_name}
+        except Exception as e:
+            if "CustomDomainNotFound" in str(e) or "404" in str(e):
+                return {"success": True, "domain_name": domain_name}
+            print(f"FC: Error deleting custom domain {domain_name}: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_custom_domain(self, domain_name: str) -> Optional[Dict[str, Any]]:
+        """Return custom domain info, or None if it doesn't exist."""
+        try:
+            response = self.client.get_custom_domain(domain_name)
+            body = response.body
+            return {
+                "domain_name": getattr(body, "domain_name", domain_name),
+                "protocol": getattr(body, "protocol", None),
+                "route_config": getattr(body, "route_config", None),
+            }
+        except Exception:
+            return None
 
     def get_function_status(self, name: str) -> Dict[str, Any]:
         """Get function status and configuration."""

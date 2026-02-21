@@ -73,6 +73,15 @@ class Settings(BaseSettings):
     # HTTP Proxy
     http_proxy: str = ""
 
+    # FC Custom Domain — wildcard certificate for *.{cdn_base_domain}
+    # (FC reserves env vars starting with FC_, so we use MIAOBU_ prefix)
+    miaobu_wildcard_cert_name: str = ""   # e.g. "metavm-wildcard"
+    miaobu_wildcard_cert_pem: str = ""    # Full-chain PEM certificate
+    miaobu_wildcard_cert_key: str = ""    # PEM private key (traditional RSA format)
+
+    # Anthropic API
+    anthropic_api_key: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False

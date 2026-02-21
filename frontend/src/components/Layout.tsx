@@ -14,6 +14,7 @@ import {
   X,
   BookOpen,
   ExternalLink,
+  Sparkles,
 } from 'lucide-react'
 
 interface LayoutProps {
@@ -23,6 +24,7 @@ interface LayoutProps {
 const navItems = [
   { to: '/dashboard', label: '控制台', icon: LayoutDashboard },
   { to: '/projects', label: '项目', icon: FolderGit2 },
+  { to: '/ai', label: 'AI 助手', icon: Sparkles },
   { to: '/projects/import', label: '导入仓库', icon: GitBranch },
   { to: '/settings', label: '设置', icon: Settings },
 ]
@@ -61,7 +63,8 @@ export default function Layout({ children }: LayoutProps) {
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = location.pathname === item.to ||
-            (item.to === '/projects' && location.pathname.startsWith('/projects/') && !location.pathname.includes('/import'))
+            (item.to === '/projects' && location.pathname.startsWith('/projects/') && !location.pathname.includes('/import')) ||
+            (item.to === '/ai' && location.pathname.startsWith('/ai/'))
           const Icon = item.icon
           return (
             <Link

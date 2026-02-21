@@ -262,6 +262,77 @@ class ApiService {
     await this.client.delete(`/tokens/${tokenId}`)
   }
 
+  // AI Chat endpoints
+  async createChatSession(projectId?: number) {
+    const response = await this.client.post('/ai/sessions', {
+      project_id: projectId || null,
+    })
+    return response.data
+  }
+
+  async listChatSessions() {
+    const response = await this.client.get('/ai/sessions')
+    return response.data
+  }
+
+  async getChatSession(sessionId: number) {
+    const response = await this.client.get(`/ai/sessions/${sessionId}`)
+    return response.data
+  }
+
+  async deleteChatSession(sessionId: number) {
+    await this.client.delete(`/ai/sessions/${sessionId}`)
+  }
+
+  sendChatMessage(sessionId: number, message: string): {
+    stream: ReadableStream<Uint8Array> | null
+    abort: () => void
+  } {
+    const controller = new AbortController()
+    const token = localStorage.getItem('token')
+
+    const streamPromise = fetch(`${API_URL}/api/v1/ai/sessions/${sessionId}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ message }),
+      signal: controller.signal,
+    }).then((res) => {
+      if (!res.ok) throw new Error(`Chat request failed: ${res.status}`)
+      return res.body
+    })
+
+    // Return a ReadableStream proxy that resolves the fetch first
+    const readable = new ReadableStream<Uint8Array>({
+      async start(ctrl) {
+        try {
+          const body = await streamPromise
+          if (!body) {
+            ctrl.close()
+            return
+          }
+          const reader = body.getReader()
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            ctrl.enqueue(value)
+          }
+          ctrl.close()
+        } catch (err: any) {
+          if (err.name !== 'AbortError') {
+            ctrl.error(err)
+          } else {
+            ctrl.close()
+          }
+        }
+      },
+    })
+
+    return { stream: readable, abort: () => controller.abort() }
+  }
+
   // Legacy SSL Certificate endpoints (deprecated - ESA handles SSL automatically)
   // Kept for backward compatibility, but these endpoints no longer exist
   async issueSSL(_domainId: number, _useStaging: boolean = false) {

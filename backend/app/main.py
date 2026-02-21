@@ -5,7 +5,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from datetime import datetime, timezone
 
 from .config import get_settings
-from .api.v1 import auth, projects, deployments, repositories, projects_deploy, webhooks, env_vars, build_callback, api_tokens
+from .api.v1 import auth, projects, deployments, repositories, projects_deploy, webhooks, env_vars, build_callback, api_tokens, ai
 from .api.v1 import domains_esa as domains
 from .api.v1.public.router import router as public_router
 from .schemas import HealthCheck
@@ -109,6 +109,7 @@ app.include_router(domains.router, prefix="/api/v1")
 app.include_router(env_vars.router, prefix="/api/v1")
 app.include_router(build_callback.router, prefix="/api/v1")
 app.include_router(api_tokens.router, prefix="/api/v1")
+app.include_router(ai.router, prefix="/api/v1")
 app.include_router(public_router, prefix="/api/v1/public")
 
 
