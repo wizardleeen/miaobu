@@ -72,7 +72,10 @@ async def trigger_build(project: Project, deployment: Deployment) -> Dict[str, A
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            async with httpx.AsyncClient() as client:
+            client_kwargs = {"timeout": 30}
+            if settings.http_proxy:
+                client_kwargs["proxies"] = settings.http_proxy
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.post(
                     f"https://api.github.com/repos/{MIAOBU_REPO}/dispatches",
                     json=payload,
@@ -81,7 +84,6 @@ async def trigger_build(project: Project, deployment: Deployment) -> Dict[str, A
                         "Accept": "application/vnd.github.v3+json",
                         "X-GitHub-Api-Version": "2022-11-28",
                     },
-                    timeout=30,
                 )
 
             # repository_dispatch returns 204 No Content on success
