@@ -11,6 +11,7 @@ import ProjectSettingsPage from './pages/ProjectSettingsPage'
 import ImportRepositoryPage from './pages/ImportRepositoryPage'
 import CallbackPage from './pages/CallbackPage'
 import AccountSettingsPage from './pages/AccountSettingsPage'
+import AIPage from './pages/AIPage'
 
 function App() {
   useTheme()
@@ -44,6 +45,14 @@ function App() {
         <Route
           path="/projects/:projectId/settings"
           element={isAuthenticated ? <ProjectSettingsPage /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/ai"
+          element={isAuthenticated ? <AIPage /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/ai/:sessionId"
+          element={isAuthenticated ? <AIPage /> : <Navigate to="/login" />}
         />
         <Route
           path="/settings"

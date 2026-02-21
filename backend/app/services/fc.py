@@ -64,7 +64,7 @@ class FCService:
         python_version: str = "3.10",
         env_vars: Optional[Dict[str, str]] = None,
         memory_mb: int = 512,
-        timeout: int = 60,
+        timeout: int = 600,
     ) -> Dict[str, Any]:
         """
         Create or update an FC function with code from OSS.
@@ -195,7 +195,7 @@ class FCService:
         start_command: str,
         env_vars: Optional[Dict[str, str]] = None,
         memory_mb: int = 512,
-        timeout: int = 60,
+        timeout: int = 600,
     ) -> Dict[str, Any]:
         """
         Create or update an FC function for a Node.js backend app.

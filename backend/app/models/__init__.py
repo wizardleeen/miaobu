@@ -297,3 +297,44 @@ class ApiToken(Base):
 
     def __repr__(self):
         return f"<ApiToken(id={self.id}, user_id={self.user_id}, prefix={self.prefix})>"
+
+
+class ChatSession(Base):
+    """Chat session for AI-powered project creation and modification."""
+    __tablename__ = "chat_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(255), default="New chat", nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user = relationship("User")
+    project = relationship("Project")
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan", order_by="ChatMessage.created_at.asc()")
+
+    def __repr__(self):
+        return f"<ChatSession(id={self.id}, user_id={self.user_id}, title={self.title})>"
+
+
+class ChatMessage(Base):
+    """Chat message within an AI chat session."""
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # "user" or "assistant"
+    content = Column(Text, nullable=False)
+    tool_calls = Column(Text, nullable=True)  # JSON string of tool calls
+    tool_results = Column(Text, nullable=True)  # JSON string of tool results
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    session = relationship("ChatSession", back_populates="messages")
+
+    def __repr__(self):
+        return f"<ChatMessage(id={self.id}, session_id={self.session_id}, role={self.role})>"

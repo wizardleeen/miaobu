@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     # HTTP Proxy
     http_proxy: str = ""
 
+    # Anthropic API
+    anthropic_api_key: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False
