@@ -37,6 +37,7 @@ You can:
 - Read and modify files in existing project repositories
 - Create Miaobu projects from repositories and trigger deployments
 - List and inspect the user's existing projects
+- Monitor deployments, read build logs, and automatically diagnose and fix build failures
 
 ## Guidelines
 1. Detect the user's language from their messages and respond in the same language (default: Chinese).
@@ -47,6 +48,18 @@ You can:
 6. When creating a project, pick sensible defaults for build config based on the framework.
 7. Keep file contents complete — never use placeholder comments like "// rest of code here".
 8. Repository names should be lowercase with hyphens, no special characters.
+
+## Build Failure Diagnosis & Auto-Fix
+After committing code (via `commit_files`) that triggers a deployment:
+1. Call `wait_for_deployment` to monitor the build until it completes.
+2. If the deployment succeeds, inform the user with the live URL.
+3. If the deployment fails:
+   a. The wait result includes build logs and error message — analyze the error.
+   b. Use `read_file` to examine the source files causing the failure.
+   c. Use `commit_files` to push a fix (this auto-triggers a new deployment via webhook).
+   d. Call `wait_for_deployment` again to verify the fix worked.
+   e. Repeat up to 3 attempts. If still failing, explain the issue to the user.
+4. Pushing a commit via `commit_files` auto-triggers deployment via webhook — do NOT call `trigger_deployment` afterward.
 """
 
 # --------------------------------------------------------------------------- #
@@ -175,6 +188,60 @@ TOOLS = [
                 "project_id": {
                     "type": "integer",
                     "description": "The Miaobu project ID to deploy.",
+                },
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "list_project_deployments",
+        "description": "List recent deployments for a project, including status, commit info, error messages, and timing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of deployments to return (default 5, max 20).",
+                },
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "get_deployment_logs",
+        "description": "Get full build logs and error details for a specific deployment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "deployment_id": {
+                    "type": "integer",
+                    "description": "The deployment ID.",
+                },
+            },
+            "required": ["project_id", "deployment_id"],
+        },
+    },
+    {
+        "name": "wait_for_deployment",
+        "description": "Wait for the latest in-progress deployment to reach a terminal state (deployed/failed/cancelled). Polls every 10 seconds, up to 5 minutes. Returns final status, build logs, and error message if failed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "deployment_id": {
+                    "type": "integer",
+                    "description": "Optional specific deployment ID to wait for. If omitted, waits for the latest in-progress deployment.",
                 },
             },
             "required": ["project_id"],
@@ -391,6 +458,174 @@ async def _exec_create_miaobu_project(
     }
 
 
+async def _exec_list_project_deployments(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    limit = min(tool_input.get("limit", 5), 20)
+    deployments = (
+        db.query(Deployment)
+        .filter(Deployment.project_id == project.id)
+        .order_by(Deployment.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "project_id": project.id,
+        "deployments": [
+            {
+                "id": d.id,
+                "status": d.status.value,
+                "commit_sha": d.commit_sha[:8] if d.commit_sha else None,
+                "commit_message": d.commit_message,
+                "error_message": d.error_message,
+                "build_time_seconds": d.build_time_seconds,
+                "deployment_url": d.deployment_url,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+                "deployed_at": d.deployed_at.isoformat() if d.deployed_at else None,
+            }
+            for d in deployments
+        ],
+    }
+
+
+async def _exec_get_deployment_logs(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    deployment = (
+        db.query(Deployment)
+        .filter(
+            Deployment.id == tool_input["deployment_id"],
+            Deployment.project_id == project.id,
+        )
+        .first()
+    )
+    if not deployment:
+        return {"error": "Deployment not found."}
+
+    build_logs = deployment.build_logs or ""
+    # Truncate to last 8000 chars — errors are at the end
+    if len(build_logs) > 8000:
+        build_logs = "...(truncated)...\n" + build_logs[-8000:]
+
+    return {
+        "deployment_id": deployment.id,
+        "status": deployment.status.value,
+        "build_logs": build_logs,
+        "error_message": deployment.error_message,
+    }
+
+
+async def _exec_wait_for_deployment(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    from ..database import SessionLocal
+
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    project_id = project.id
+    target_deployment_id = tool_input.get("deployment_id")
+    terminal_statuses = {
+        DeploymentStatus.DEPLOYED,
+        DeploymentStatus.FAILED,
+        DeploymentStatus.CANCELLED,
+        DeploymentStatus.PURGED,
+    }
+    max_polls = 30  # 30 * 10s = 5 minutes
+
+    for _ in range(max_polls):
+        poll_db = SessionLocal()
+        try:
+            if target_deployment_id:
+                dep = (
+                    poll_db.query(Deployment)
+                    .filter(
+                        Deployment.id == target_deployment_id,
+                        Deployment.project_id == project_id,
+                    )
+                    .first()
+                )
+            else:
+                dep = (
+                    poll_db.query(Deployment)
+                    .filter(Deployment.project_id == project_id)
+                    .order_by(Deployment.created_at.desc())
+                    .first()
+                )
+
+            if not dep:
+                return {"error": "No deployment found for this project."}
+
+            if dep.status in terminal_statuses:
+                build_logs = dep.build_logs or ""
+                if len(build_logs) > 8000:
+                    build_logs = "...(truncated)...\n" + build_logs[-8000:]
+                return {
+                    "deployment_id": dep.id,
+                    "status": dep.status.value,
+                    "build_logs": build_logs if dep.status == DeploymentStatus.FAILED else "",
+                    "error_message": dep.error_message,
+                    "deployment_url": dep.deployment_url,
+                    "build_time_seconds": dep.build_time_seconds,
+                }
+        finally:
+            poll_db.close()
+
+        await asyncio.sleep(10)
+
+    # Timeout — return current state
+    poll_db = SessionLocal()
+    try:
+        if target_deployment_id:
+            dep = (
+                poll_db.query(Deployment)
+                .filter(
+                    Deployment.id == target_deployment_id,
+                    Deployment.project_id == project_id,
+                )
+                .first()
+            )
+        else:
+            dep = (
+                poll_db.query(Deployment)
+                .filter(Deployment.project_id == project_id)
+                .order_by(Deployment.created_at.desc())
+                .first()
+            )
+        if dep:
+            return {
+                "deployment_id": dep.id,
+                "status": dep.status.value,
+                "error_message": dep.error_message,
+                "timed_out": True,
+                "note": "Deployment did not reach a terminal state within 5 minutes.",
+            }
+        return {"error": "No deployment found.", "timed_out": True}
+    finally:
+        poll_db.close()
+
+
 async def _exec_trigger_deployment(
     tool_input: Dict[str, Any], user: User, db: Session
 ) -> Dict[str, Any]:
@@ -458,6 +693,9 @@ TOOL_EXECUTORS = {
     "commit_files": _exec_commit_files,
     "create_miaobu_project": _exec_create_miaobu_project,
     "trigger_deployment": _exec_trigger_deployment,
+    "list_project_deployments": _exec_list_project_deployments,
+    "get_deployment_logs": _exec_get_deployment_logs,
+    "wait_for_deployment": _exec_wait_for_deployment,
 }
 
 
