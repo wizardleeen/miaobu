@@ -21,8 +21,8 @@ import oss2
 ACCELERATE_ENDPOINT = "oss-accelerate.aliyuncs.com"
 
 # Buckets (overridable via env for staging)
-STATIC_BUCKET = os.environ.get("MIAOBU_STATIC_BUCKET", "miaobu-deployments")
-PYTHON_BUCKET = os.environ.get("MIAOBU_FC_BUCKET", "miaobu-deployments-qingdao")
+STATIC_BUCKET = os.environ.get("ALIYUN_OSS_BUCKET", "miaobu-deployments")
+PYTHON_BUCKET = os.environ.get("ALIYUN_FC_OSS_BUCKET", "miaobu-deployments-qingdao")
 
 # Text extensions to gzip
 GZIP_EXTENSIONS = {
