@@ -462,12 +462,12 @@ class FCService:
         Env vars may use literal ``\\n`` for newlines, so we normalise first.
         """
         settings = self.settings
-        if not (settings.fc_wildcard_cert_pem and settings.fc_wildcard_cert_key):
+        if not (settings.miaobu_wildcard_cert_pem and settings.miaobu_wildcard_cert_key):
             return None
-        cert = settings.fc_wildcard_cert_pem.replace("\\n", "\n")
-        key = settings.fc_wildcard_cert_key.replace("\\n", "\n")
+        cert = settings.miaobu_wildcard_cert_pem.replace("\\n", "\n")
+        key = settings.miaobu_wildcard_cert_key.replace("\\n", "\n")
         return fc_models.CertConfig(
-            cert_name=settings.fc_wildcard_cert_name or "wildcard",
+            cert_name=settings.miaobu_wildcard_cert_name or "wildcard",
             certificate=cert,
             private_key=key,
         )
