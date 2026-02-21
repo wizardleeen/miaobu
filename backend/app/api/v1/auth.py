@@ -81,14 +81,13 @@ async def github_callback(
         return RedirectResponse(url=frontend_url)
 
     except Exception as e:
-        # Redirect to frontend with error
-        print(f"[ERROR] Exception in github_callback: {type(e).__name__}: {str(e)}")
+        # Redirect to frontend with error — include exception type for debugging
         import traceback
         traceback.print_exc()
-        # Get error message from HTTPException.detail or str(e)
-        error_message = getattr(e, 'detail', str(e)) or 'Authentication failed'
-        error_url = f"{settings.frontend_url}/auth/callback?error={error_message}"
-        print(f"[ERROR] Redirecting to error URL: {error_url}")
+        error_detail = getattr(e, 'detail', str(e)) or ''
+        error_message = f"{type(e).__name__}: {error_detail}" if error_detail else f"{type(e).__name__}: {repr(e)}"
+        import urllib.parse
+        error_url = f"{settings.frontend_url}/auth/callback?error={urllib.parse.quote(error_message)}"
         return RedirectResponse(url=error_url)
 
 
