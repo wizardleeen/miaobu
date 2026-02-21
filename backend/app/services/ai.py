@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from typing import AsyncGenerator, Dict, Any, List, Optional
 
 import anthropic
-import httpx
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -527,11 +526,6 @@ def _build_messages(session: ChatSession) -> List[Dict[str, Any]]:
     return messages
 
 
-def _sse_event(event_type: str, data: Any) -> str:
-    """Format an SSE event."""
-    return f"data: {json.dumps({'type': event_type, 'data': data}, ensure_ascii=False)}\n\n"
-
-
 def prepare_chat(
     session: ChatSession,
     user_message: str,
@@ -595,14 +589,14 @@ async def stream_chat(
 
     user_ctx = _UserCtx(ctx["user_id"], ctx["github_access_token"], ctx["github_username"])
 
-    # Configure Anthropic client with proxy if set
-    client_kwargs: Dict[str, Any] = {"api_key": settings.anthropic_api_key}
-    if settings.http_proxy:
-        import httpx as _httpx
-        client_kwargs["http_client"] = _httpx.Client(
-            proxy=settings.http_proxy,
-            timeout=120.0,
-        )
+    # Configure Anthropic client.
+    # httpx automatically reads HTTP_PROXY/HTTPS_PROXY from env, so we
+    # only need to override the timeout (default 600s is fine, but we set
+    # it explicitly to match the FC function timeout).
+    client_kwargs: Dict[str, Any] = {
+        "api_key": settings.anthropic_api_key,
+        "timeout": 600.0,
+    }
     client = anthropic.Anthropic(**client_kwargs)
 
     accumulated_text = ""
