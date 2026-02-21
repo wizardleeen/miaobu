@@ -186,8 +186,7 @@ def deploy_python(
         project.fc_endpoint_url = fc_endpoint
     db.commit()
 
-    # --- Edge KV ---
-    esa_service = ESAService()
+    # --- Subdomain setup ---
     if is_staging:
         subdomain = f"{project.slug}-staging.{settings.cdn_base_domain}"
     else:
@@ -197,29 +196,12 @@ def deploy_python(
     commit_tag = deployment.commit_sha[:12] if deployment.commit_sha else "unknown"
     deployment.fc_function_version = commit_tag
 
-    kv_data = {
-        "type": "python",
-        "fc_endpoint": fc_endpoint,
-        "project_slug": project.slug,
-        "deployment_id": deployment.id,
-        "commit_sha": deployment.commit_sha,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    if is_staging:
-        kv_data["staging"] = True
-        if project.staging_password:
-            kv_data["staging_password_hash"] = project.staging_password
-    kv_value = json.dumps(kv_data)
+    # --- FC custom domain + DNS (direct routing, bypasses ESA) ---
+    _setup_fc_direct_domain(subdomain, stable_name, fc_endpoint, fc_service, log)
 
-    log("Updating Edge KV for subdomain routing...")
-    kv_result = esa_service.put_edge_kv(subdomain, kv_value)
-    if kv_result["success"]:
-        log(f"Edge KV updated for {subdomain}")
-    else:
-        log(f"Warning: Edge KV update failed for {subdomain}: {kv_result.get('error')}")
-
-    # --- Auto-update custom domains (production only) ---
+    # --- Auto-update custom domains via ESA (external domains only) ---
     if not is_staging:
+        esa_service = ESAService()
         _sync_custom_domains_fc(
             project=project,
             deployment=deployment,
@@ -239,9 +221,6 @@ def deploy_python(
     else:
         project.active_deployment_id = deployment.id
     db.commit()
-
-    # --- Cache purge ---
-    _purge_hostnames([subdomain], esa_service, log)
 
     # --- Migrate from old blue-green function name ---
     if old_name and old_name != stable_name:
@@ -331,8 +310,7 @@ def deploy_node(
         project.fc_endpoint_url = fc_endpoint
     db.commit()
 
-    # --- Edge KV ---
-    esa_service = ESAService()
+    # --- Subdomain setup ---
     if is_staging:
         subdomain = f"{project.slug}-staging.{settings.cdn_base_domain}"
     else:
@@ -342,29 +320,12 @@ def deploy_node(
     commit_tag = deployment.commit_sha[:12] if deployment.commit_sha else "unknown"
     deployment.fc_function_version = commit_tag
 
-    kv_data = {
-        "type": "node",
-        "fc_endpoint": fc_endpoint,
-        "project_slug": project.slug,
-        "deployment_id": deployment.id,
-        "commit_sha": deployment.commit_sha,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    if is_staging:
-        kv_data["staging"] = True
-        if project.staging_password:
-            kv_data["staging_password_hash"] = project.staging_password
-    kv_value = json.dumps(kv_data)
+    # --- FC custom domain + DNS (direct routing, bypasses ESA) ---
+    _setup_fc_direct_domain(subdomain, stable_name, fc_endpoint, fc_service, log)
 
-    log("Updating Edge KV for subdomain routing...")
-    kv_result = esa_service.put_edge_kv(subdomain, kv_value)
-    if kv_result["success"]:
-        log(f"Edge KV updated for {subdomain}")
-    else:
-        log(f"Warning: Edge KV update failed for {subdomain}: {kv_result.get('error')}")
-
-    # --- Auto-update custom domains (production only) ---
+    # --- Auto-update custom domains via ESA (external domains only) ---
     if not is_staging:
+        esa_service = ESAService()
         _sync_custom_domains_fc(
             project=project,
             deployment=deployment,
@@ -384,9 +345,6 @@ def deploy_node(
     else:
         project.active_deployment_id = deployment.id
     db.commit()
-
-    # --- Cache purge ---
-    _purge_hostnames([subdomain], esa_service, log)
 
     # --- Migrate from old blue-green function name ---
     if old_name and old_name != stable_name:
@@ -630,25 +588,10 @@ def rollback_to_deployment(
             project.fc_endpoint_url = fc_endpoint
         db.commit()
 
-        kv_data = {
-            "type": project.project_type,
-            "fc_endpoint": fc_endpoint,
-            "project_slug": project.slug,
-            "deployment_id": deployment.id,
-            "commit_sha": deployment.commit_sha,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        if is_staging:
-            kv_data["staging"] = True
-            if project.staging_password:
-                kv_data["staging_password_hash"] = project.staging_password
-        kv_value = json.dumps(kv_data)
+        # FC custom domain + DNS (direct routing, bypasses ESA)
+        _setup_fc_direct_domain(subdomain, stable_name, fc_endpoint, fc_service, log)
 
-        kv_result = esa_service.put_edge_kv(subdomain, kv_value)
-        if not kv_result["success"]:
-            log(f"Warning: Edge KV update failed: {kv_result.get('error')}")
-
-        # Sync auto-update custom domains (production only)
+        # Sync auto-update custom domains via ESA (external domains only)
         if not is_staging:
             _sync_custom_domains_fc(
                 project=project,
@@ -667,9 +610,6 @@ def rollback_to_deployment(
         project.active_deployment_id = deployment.id
     db.commit()
 
-    # --- Cache purge ---
-    _purge_hostnames([subdomain], esa_service, log)
-
     deployment_url = f"https://{subdomain}/"
     log(f"Rollback complete. Deployment URL: {deployment_url}")
     return {"success": True, "deployment_id": deployment.id, "deployment_url": deployment_url}
@@ -678,6 +618,41 @@ def rollback_to_deployment(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _setup_fc_direct_domain(
+    subdomain: str,
+    function_name: str,
+    fc_endpoint: str,
+    fc_service,
+    log: Callable,
+) -> None:
+    """
+    Create DNS CNAME + FC custom domain so that *subdomain* routes directly
+    to the FC function, bypassing ESA.
+
+    Order matters: FC validates that the CNAME already resolves to its
+    endpoint **before** accepting the custom domain, so DNS must be first.
+    The CNAME target is the account-level FC endpoint
+    (``{account_id}.{fc_region}.fc.aliyuncs.com``), not the per-function URL.
+    """
+    from .alidns import AliDNSService
+
+    # 1. DNS CNAME → FC account endpoint (must resolve before step 2)
+    fc_cname_target = fc_service.fc_cname_target
+    dns_service = AliDNSService()
+    dns_result = dns_service.add_cname_record(subdomain, fc_cname_target)
+    if dns_result.get("success"):
+        log(f"DNS CNAME set: {subdomain} → {fc_cname_target}")
+    else:
+        log(f"Warning: DNS CNAME failed: {dns_result.get('error')}")
+
+    # 2. FC custom domain (route + TLS cert)
+    cd_result = fc_service.create_or_update_custom_domain(subdomain, function_name)
+    if cd_result.get("success"):
+        log(f"FC custom domain configured: {subdomain}")
+    else:
+        log(f"Warning: FC custom domain failed: {cd_result.get('error')}")
+
 
 def _get_project_env_vars(
     project_id: int, db: Session, log: Callable, environment: str = "production"

@@ -238,7 +238,10 @@ class AliDNSService:
         ttl: int = 600
     ) -> Dict[str, Any]:
         """
-        Add CNAME record to DNS.
+        Add or update (upsert) a CNAME record.
+
+        If the record already exists (DomainRecordDuplicate), finds the
+        existing record and updates its target value instead.
 
         Args:
             domain: Full domain name
@@ -246,7 +249,7 @@ class AliDNSService:
             ttl: Time to live in seconds
 
         Returns:
-            Operation result
+            Operation result with record_id
         """
         try:
             root_domain, rr = self.extract_domain_parts(domain)
@@ -271,10 +274,109 @@ class AliDNSService:
             }
 
         except Exception as e:
+            if 'DomainRecordDuplicate' in str(e):
+                return self._update_existing_cname(root_domain, rr, target, ttl)
             return {
                 'success': False,
                 'error': str(e),
                 'message': f'Failed to add CNAME record: {str(e)}'
+            }
+
+    def _update_existing_cname(
+        self, root_domain: str, rr: str, target: str, ttl: int
+    ) -> Dict[str, Any]:
+        """Find and update an existing CNAME record."""
+        try:
+            # Find the existing record
+            desc_req = DescribeDomainRecordsRequest.DescribeDomainRecordsRequest()
+            desc_req.set_accept_format('json')
+            desc_req.set_DomainName(root_domain)
+            desc_req.set_RRKeyWord(rr)
+            desc_req.set_TypeKeyWord("CNAME")
+
+            response = self.client.do_action_with_exception(desc_req)
+            result = eval(response.decode('utf-8'))
+            records = result.get('DomainRecords', {}).get('Record', [])
+
+            # Match exact RR (keyword search can be partial)
+            record = next((r for r in records if r.get('RR') == rr), None)
+            if not record:
+                return {'success': False, 'error': f'Duplicate reported but record not found for RR={rr}'}
+
+            record_id = record['RecordId']
+
+            # Update with new target
+            upd_req = UpdateDomainRecordRequest.UpdateDomainRecordRequest()
+            upd_req.set_accept_format('json')
+            upd_req.set_RecordId(record_id)
+            upd_req.set_RR(rr)
+            upd_req.set_Type("CNAME")
+            upd_req.set_Value(target)
+            upd_req.set_TTL(ttl)
+
+            self.client.do_action_with_exception(upd_req)
+            return {
+                'success': True,
+                'record_id': record_id,
+                'domain': f'{rr}.{root_domain}',
+                'target': target,
+                'message': 'CNAME record updated (upsert)',
+            }
+        except Exception as ue:
+            return {
+                'success': False,
+                'error': str(ue),
+                'message': f'Failed to update existing CNAME: {str(ue)}',
+            }
+
+    def delete_cname_record(self, domain: str) -> Dict[str, Any]:
+        """
+        Delete a CNAME record by domain name.
+
+        Looks up the record via DescribeDomainRecords, then deletes it.
+        Returns success if the record doesn't exist (idempotent).
+
+        Args:
+            domain: Full domain name (e.g. myapp.metavm.tech)
+
+        Returns:
+            Operation result
+        """
+        try:
+            root_domain, rr = self.extract_domain_parts(domain)
+
+            desc_req = DescribeDomainRecordsRequest.DescribeDomainRecordsRequest()
+            desc_req.set_accept_format('json')
+            desc_req.set_DomainName(root_domain)
+            desc_req.set_RRKeyWord(rr)
+            desc_req.set_TypeKeyWord("CNAME")
+
+            response = self.client.do_action_with_exception(desc_req)
+            result = eval(response.decode('utf-8'))
+            records = result.get('DomainRecords', {}).get('Record', [])
+
+            record = next((r for r in records if r.get('RR') == rr), None)
+            if not record:
+                return {'success': True, 'message': 'CNAME record not found (already deleted)'}
+
+            record_id = record['RecordId']
+            del_req = DeleteDomainRecordRequest.DeleteDomainRecordRequest()
+            del_req.set_accept_format('json')
+            del_req.set_RecordId(record_id)
+
+            self.client.do_action_with_exception(del_req)
+            return {
+                'success': True,
+                'record_id': record_id,
+                'domain': domain,
+                'message': 'CNAME record deleted successfully',
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'message': f'Failed to delete CNAME record: {str(e)}',
             }
 
     def list_domain_records(

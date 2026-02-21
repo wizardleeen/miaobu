@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     # HTTP Proxy
     http_proxy: str = ""
 
+    # FC Custom Domain — wildcard certificate for *.{cdn_base_domain}
+    fc_wildcard_cert_name: str = ""       # e.g. "metavm-wildcard"
+    fc_wildcard_cert_pem: str = ""        # Full-chain PEM certificate
+    fc_wildcard_cert_key: str = ""        # PEM private key
+
     # Anthropic API
     anthropic_api_key: str = ""
 
