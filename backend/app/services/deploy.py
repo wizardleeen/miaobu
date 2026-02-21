@@ -199,7 +199,7 @@ def deploy_python(
     # --- FC custom domain + DNS (direct routing, bypasses ESA) ---
     _setup_fc_direct_domain(subdomain, stable_name, fc_endpoint, fc_service, log)
 
-    # --- Auto-update custom domains via ESA (external domains only) ---
+    # --- Auto-update custom domains ---
     if not is_staging:
         esa_service = ESAService()
         _sync_custom_domains_fc(
@@ -210,6 +210,8 @@ def deploy_python(
             db=db,
             log=log,
             kv_type="python",
+            fc_service=fc_service,
+            function_name=stable_name,
         )
 
     # --- Mark DEPLOYED ---
@@ -323,7 +325,7 @@ def deploy_node(
     # --- FC custom domain + DNS (direct routing, bypasses ESA) ---
     _setup_fc_direct_domain(subdomain, stable_name, fc_endpoint, fc_service, log)
 
-    # --- Auto-update custom domains via ESA (external domains only) ---
+    # --- Auto-update custom domains ---
     if not is_staging:
         esa_service = ESAService()
         _sync_custom_domains_fc(
@@ -334,6 +336,8 @@ def deploy_node(
             db=db,
             log=log,
             kv_type="node",
+            fc_service=fc_service,
+            function_name=stable_name,
         )
 
     # --- Mark DEPLOYED ---
@@ -591,7 +595,7 @@ def rollback_to_deployment(
         # FC custom domain + DNS (direct routing, bypasses ESA)
         _setup_fc_direct_domain(subdomain, stable_name, fc_endpoint, fc_service, log)
 
-        # Sync auto-update custom domains via ESA (external domains only)
+        # Sync auto-update custom domains
         if not is_staging:
             _sync_custom_domains_fc(
                 project=project,
@@ -601,6 +605,8 @@ def rollback_to_deployment(
                 db=db,
                 log=log,
                 kv_type=project.project_type,
+                fc_service=fc_service,
+                function_name=stable_name,
             )
 
     # --- Update project active/staging deployment ---
@@ -750,8 +756,17 @@ def _sync_custom_domains_fc(
     db: Session,
     log: Callable,
     kv_type: str = "python",
+    fc_service=None,
+    function_name: str = "",
 ) -> None:
-    """Update Edge KV for custom domains with auto-update enabled (FC-based: Python or Node)."""
+    """Update custom domains with auto-update enabled (FC-based: Python or Node).
+
+    For platform subdomains (*.{cdn_base_domain}), sets up FC custom domain +
+    DNS CNAME so traffic routes directly to FC (bypasses ESA).
+    For external domains, updates Edge KV so ESA edge routine can proxy to FC.
+    """
+    settings = get_settings()
+    base_domain = settings.cdn_base_domain
     try:
         domains = (
             db.query(CustomDomain)
@@ -768,23 +783,34 @@ def _sync_custom_domains_fc(
 
         log(f"Updating {len(domains)} custom domain(s)...")
         for domain in domains:
-            kv_value = json.dumps({
-                "type": kv_type,
-                "fc_endpoint": fc_endpoint,
-                "project_slug": project.slug,
-                "deployment_id": deployment.id,
-                "commit_sha": deployment.commit_sha,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            })
-            kv_result = esa_service.put_edge_kv(domain.domain, kv_value)
-            if kv_result["success"]:
+            is_platform_subdomain = domain.domain.endswith(f".{base_domain}")
+
+            if is_platform_subdomain and fc_service and function_name:
+                # Route directly to FC (bypass ESA)
+                _setup_fc_direct_domain(domain.domain, function_name, fc_endpoint, fc_service, log)
                 domain.active_deployment_id = deployment.id
                 domain.edge_kv_synced = True
                 domain.edge_kv_synced_at = datetime.now(timezone.utc)
-                log(f"  {domain.domain} updated to deployment #{deployment.id}")
+                log(f"  {domain.domain} → FC direct (deployment #{deployment.id})")
             else:
-                domain.edge_kv_synced = False
-                log(f"  Warning: {domain.domain} Edge KV update failed: {kv_result.get('error')}")
+                # External domain — route through ESA edge routine via Edge KV
+                kv_value = json.dumps({
+                    "type": kv_type,
+                    "fc_endpoint": fc_endpoint,
+                    "project_slug": project.slug,
+                    "deployment_id": deployment.id,
+                    "commit_sha": deployment.commit_sha,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+                kv_result = esa_service.put_edge_kv(domain.domain, kv_value)
+                if kv_result["success"]:
+                    domain.active_deployment_id = deployment.id
+                    domain.edge_kv_synced = True
+                    domain.edge_kv_synced_at = datetime.now(timezone.utc)
+                    log(f"  {domain.domain} updated to deployment #{deployment.id}")
+                else:
+                    domain.edge_kv_synced = False
+                    log(f"  Warning: {domain.domain} Edge KV update failed: {kv_result.get('error')}")
 
         db.commit()
     except Exception as e:

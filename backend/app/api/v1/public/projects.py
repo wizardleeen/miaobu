@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from ....database import get_db
-from ....models import User, Project
+from ....models import User, Project, CustomDomain
 from ....core.security import get_current_user_flexible
 from ....core.exceptions import NotFoundException, ForbiddenException
 from .helpers import PaginationParams, paginated_response, single_response
@@ -184,6 +184,22 @@ async def delete_project(
             dns_svc.delete_cname_record(prod_subdomain)
         except Exception:
             pass
+
+        # Clean up FC custom domains for platform-subdomain custom domains
+        base_domain = settings.cdn_base_domain
+        custom_domains = db.query(CustomDomain).filter(
+            CustomDomain.project_id == project.id
+        ).all()
+        for cd in custom_domains:
+            if cd.domain.endswith(f".{base_domain}"):
+                try:
+                    fc_svc.delete_custom_domain(cd.domain)
+                except Exception:
+                    pass
+                try:
+                    dns_svc.delete_cname_record(cd.domain)
+                except Exception:
+                    pass
 
         # Clean up staging FC resources if enabled
         if project.staging_enabled:
