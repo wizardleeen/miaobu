@@ -974,7 +974,7 @@ async def stream_chat(
                 response = await asyncio.to_thread(
                     client.messages.create,
                     model=model,
-                    max_tokens=16384,
+                    max_tokens=32768,
                     system=SYSTEM_PROMPT,
                     tools=TOOLS,
                     messages=messages,
