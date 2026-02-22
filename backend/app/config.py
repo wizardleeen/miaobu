@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     miaobu_wildcard_cert_pem: str = ""    # Full-chain PEM certificate
     miaobu_wildcard_cert_key: str = ""    # PEM private key (traditional RSA format)
 
+    # Manul server
+    manul_server_host: str = "https://api.metavm.tech"
+    manul_owner_id: str = "01bcbc93ba0700"
+
     # Anthropic API
     anthropic_api_key: str = ""
 

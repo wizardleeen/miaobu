@@ -449,6 +449,14 @@ async def delete_project(
         except Exception as e:
             logger.warning(f"Failed to delete staging Edge KV: {e}")
 
+    # Delete Manul app from the Manul server
+    if project.project_type == "manul" and project.manul_app_id:
+        try:
+            from ...services.manul import ManulService
+            ManulService().delete_app(project.manul_app_id)
+        except Exception as e:
+            logger.warning(f"Failed to delete Manul app: {e}")
+
     # Delete all OSS files for the project
     try:
         oss_service = OSSService()
@@ -456,8 +464,8 @@ async def delete_project(
     except Exception as e:
         logger.warning(f"Failed to delete OSS files: {e}")
 
-    # Delete FC packages from Qingdao bucket for Python/Node.js projects
-    if project.project_type in ("python", "node"):
+    # Delete FC packages from Qingdao bucket for Python/Node.js/Manul projects
+    if project.project_type in ("python", "node", "manul"):
         try:
             from ...config import get_settings
             settings = get_settings()

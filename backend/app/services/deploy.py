@@ -368,6 +368,112 @@ def deploy_node(
     }
 
 
+def deploy_manul(
+    deployment_id: int,
+    oss_key: str,
+    db: Session,
+    log: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Any]:
+    """
+    Finalize a Manul project deployment.
+
+    Downloads the .mva from OSS and posts it to the Manul server.
+    Polls deploy status until complete or timeout.
+    """
+    import time
+    from .manul import ManulService
+
+    settings = get_settings()
+    if log is None:
+        log = lambda msg: None
+
+    deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
+    if not deployment:
+        return {"success": False, "error": f"Deployment {deployment_id} not found"}
+
+    project = deployment.project
+
+    if not project.manul_app_id:
+        deployment.status = DeploymentStatus.FAILED
+        deployment.error_message = "Manul app ID not configured"
+        db.commit()
+        return {"success": False, "error": "Manul app ID not configured"}
+
+    deployment.status = DeploymentStatus.DEPLOYING
+    db.commit()
+
+    log("Downloading .mva from OSS...")
+    fc_oss_service = OSSService(
+        bucket_name=settings.aliyun_fc_oss_bucket,
+        endpoint=settings.aliyun_fc_oss_endpoint,
+    )
+    try:
+        mva_data = fc_oss_service.download_object(oss_key)
+    except Exception as e:
+        deployment.status = DeploymentStatus.FAILED
+        deployment.error_message = f"Failed to download .mva from OSS: {e}"
+        db.commit()
+        return {"success": False, "error": deployment.error_message}
+
+    log(f"Deploying to Manul server (app_id={project.manul_app_id})...")
+    manul_service = ManulService()
+    deploy_result = manul_service.deploy(project.manul_app_id, mva_data)
+
+    if not deploy_result["success"]:
+        deployment.status = DeploymentStatus.FAILED
+        deployment.error_message = f"Manul deploy failed: {deploy_result.get('error')}"
+        db.commit()
+        return {"success": False, "error": deployment.error_message}
+
+    deploy_id = deploy_result["deploy_id"]
+    log(f"Deploy started (deploy_id={deploy_id}), polling status...")
+
+    # Poll deploy status
+    timeout = 120
+    poll_interval = 3
+    elapsed = 0
+    while elapsed < timeout:
+        try:
+            status_str = manul_service.get_deploy_status(project.manul_app_id, deploy_id)
+            log(f"Deploy status: {status_str}")
+            if status_str.lower() in ("done", "completed", "success"):
+                break
+            if status_str.lower() in ("failed", "error"):
+                deployment.status = DeploymentStatus.FAILED
+                deployment.error_message = f"Manul deploy failed with status: {status_str}"
+                db.commit()
+                return {"success": False, "error": deployment.error_message}
+        except Exception as e:
+            log(f"Warning: status poll error: {e}")
+
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+    else:
+        deployment.status = DeploymentStatus.FAILED
+        deployment.error_message = "Manul deploy timed out"
+        db.commit()
+        return {"success": False, "error": "Manul deploy timed out"}
+
+    # Build deployment URL
+    app_name = project.manul_app_name or project.slug
+    deployment_url = f"{settings.manul_server_host}/{app_name}/"
+
+    deployment.status = DeploymentStatus.DEPLOYED
+    deployment.deployed_at = datetime.now(timezone.utc)
+    deployment.deployment_url = deployment_url
+    project.active_deployment_id = deployment.id
+    db.commit()
+
+    # Cleanup old deployments
+    try:
+        cleanup_old_deployments(project.id, db)
+    except Exception as e:
+        log(f"Warning: cleanup failed: {e}")
+
+    log(f"Deployment URL: {deployment_url}")
+    return {"success": True, "deployment_id": deployment.id, "deployment_url": deployment_url}
+
+
 def cleanup_old_deployments(
     project_id: int,
     db: Session,
@@ -425,7 +531,7 @@ def cleanup_old_deployments(
 
     to_delete = [d for d in deployments[keep_count:] if d.id not in protected_ids]
 
-    is_fc = project.project_type in ("python", "node")
+    is_fc = project.project_type in ("python", "node", "manul")
     oss_service = OSSService()
     fc_oss_service = None
     if is_fc:
@@ -492,7 +598,22 @@ def rollback_to_deployment(
         subdomain = f"{project.slug}.{settings.cdn_base_domain}"
     esa_service = ESAService()
 
-    if project.project_type == "static":
+    if project.project_type == "manul":
+        # --- Manul rollback: use the Manul server's revert API ---
+        from .manul import ManulService
+
+        if not project.manul_app_id:
+            return {"success": False, "error": "Manul app ID not configured"}
+
+        log(f"Rolling back Manul app (app_id={project.manul_app_id})...")
+        manul_service = ManulService()
+        revert_result = manul_service.revert(project.manul_app_id)
+        if not revert_result["success"]:
+            return {"success": False, "error": f"Manul revert failed: {revert_result.get('error')}"}
+
+        log("Manul revert succeeded")
+
+    elif project.project_type == "static":
         # --- Static rollback: just switch Edge KV ---
         oss_prefix = f"projects/{project.slug}/{deployment.id}"
 

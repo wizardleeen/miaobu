@@ -254,7 +254,12 @@ export default function ImportRepositoryPage() {
                     <div>
                       <label className="text-xs text-[--text-tertiary]">项目类型</label>
                       <p className="font-medium text-sm text-[--text-primary] mt-0.5">
-                        {analysis.project_type === 'python' ? (
+                        {analysis.project_type === 'manul' ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block"></span>
+                            Manul 后端
+                          </span>
+                        ) : analysis.project_type === 'python' ? (
                           <span className="inline-flex items-center gap-1.5">
                             <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span>
                             Python 后端
@@ -307,7 +312,7 @@ export default function ImportRepositoryPage() {
                 {/* Configuration Form */}
                 <div className="card p-5">
                   <h2 className="text-sm font-semibold text-[--text-primary] mb-1">
-                    {customConfig.project_type === 'python' ? 'Python 部署配置' : customConfig.project_type === 'node' ? 'Node.js 部署配置' : '构建配置'}
+                    {customConfig.project_type === 'manul' ? 'Manul 部署配置' : customConfig.project_type === 'python' ? 'Python 部署配置' : customConfig.project_type === 'node' ? 'Node.js 部署配置' : '构建配置'}
                   </h2>
                   <p className="text-xs text-[--text-secondary] mb-4">
                     检查并自定义自动检测的设置
@@ -338,6 +343,7 @@ export default function ImportRepositoryPage() {
                         <option value="static">静态/前端 (Node.js)</option>
                         <option value="node">Node.js 后端</option>
                         <option value="python">Python 后端</option>
+                        <option value="manul">Manul 后端</option>
                       </select>
                     </div>
 
@@ -359,7 +365,13 @@ export default function ImportRepositoryPage() {
                       </p>
                     </div>
 
-                    {customConfig.project_type === 'python' ? (
+                    {customConfig.project_type === 'manul' ? (
+                      <div className="p-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-lg">
+                        <p className="text-sm text-orange-800 dark:text-orange-300">
+                          Manul 项目将自动构建和部署，无需额外配置。
+                        </p>
+                      </div>
+                    ) : customConfig.project_type === 'python' ? (
                       <>
                         <div>
                           <label className="block text-sm font-medium text-[--text-secondary] mb-1">启动命令</label>

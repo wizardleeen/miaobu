@@ -12,6 +12,7 @@ class ProjectType(str, enum.Enum):
     STATIC = "static"
     PYTHON = "python"
     NODE = "node"
+    MANUL = "manul"
 
 
 class DeploymentStatus(str, enum.Enum):
@@ -94,6 +95,10 @@ class Project(Base):
     # Function Compute info
     fc_function_name = Column(String(255))
     fc_endpoint_url = Column(String(512))
+
+    # Manul project info
+    manul_app_id = Column(Integer)
+    manul_app_name = Column(String(255))
 
     # Deployment info
     oss_path = Column(String(512))  # user_id/project_id/

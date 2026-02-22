@@ -299,6 +299,18 @@ class OSSService:
 
         return deleted_count
 
+    def download_object(self, key: str) -> bytes:
+        """
+        Download an object's content from OSS.
+
+        Args:
+            key: Object key in OSS
+
+        Returns:
+            Raw bytes of the object
+        """
+        return self.bucket.get_object(key).read()
+
     def object_exists(self, oss_path: str) -> bool:
         """
         Check if an object exists in OSS.

@@ -192,6 +192,8 @@ async def import_repository(
             project_type = "python"
         elif project_type_str == "node":
             project_type = "node"
+        elif project_type_str == "manul":
+            project_type = "manul"
         else:
             project_type = "static"
 
@@ -213,7 +215,10 @@ async def import_repository(
             default_domain=f"{slug}.{settings.cdn_base_domain}",
         )
 
-        if project_type == "python":
+        if project_type == "manul":
+            # Manul projects have no build config fields to set
+            pass
+        elif project_type == "python":
             # Python-specific fields
             if custom_config:
                 project_kwargs["python_version"] = custom_config.get("python_version", build_config.get("python_version", "3.11"))
@@ -256,6 +261,20 @@ async def import_repository(
         db.add(project)
         db.commit()
         db.refresh(project)
+
+        # Create Manul app on the Manul server
+        if project_type == "manul":
+            from ...services.manul import ManulService
+            manul_service = ManulService()
+            manul_result = manul_service.create_app(slug)
+            if not manul_result["success"]:
+                db.delete(project)
+                db.commit()
+                raise BadRequestException(f"Failed to create Manul app: {manul_result.get('error')}")
+            project.manul_app_id = manul_result["app_id"]
+            project.manul_app_name = slug
+            db.commit()
+            db.refresh(project)
 
         # Create environment variables if provided
         if body.environment_variables:
@@ -384,6 +403,8 @@ async def import_repository(
                 "python_version": project.python_version,
                 "start_command": project.start_command,
                 "python_framework": project.python_framework,
+                "manul_app_id": project.manul_app_id,
+                "manul_app_name": project.manul_app_name,
                 "webhook_id": project.webhook_id,
                 "webhook_configured": webhook_created,
                 "created_at": project.created_at,

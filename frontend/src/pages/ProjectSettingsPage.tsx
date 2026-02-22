@@ -174,7 +174,7 @@ export default function ProjectSettingsPage() {
           {/* Build Settings */}
           <div className="card p-5">
             <h2 className="text-sm font-semibold text-[--text-primary] mb-4">
-              {project.project_type === 'python' || project.project_type === 'node' ? '部署配置' : '构建配置'}
+              {project.project_type === 'python' || project.project_type === 'node' || project.project_type === 'manul' ? '部署配置' : '构建配置'}
             </h2>
             <div className="space-y-4">
               <div>
@@ -193,7 +193,13 @@ export default function ProjectSettingsPage() {
                 </p>
               </div>
 
-              {project.project_type === 'python' ? (
+              {project.project_type === 'manul' ? (
+                <div className="p-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-lg">
+                  <p className="text-sm text-orange-800 dark:text-orange-300">
+                    Manul 项目自动构建和部署，无需额外构建配置。
+                  </p>
+                </div>
+              ) : project.project_type === 'python' ? (
                 <>
                   <div>
                     <label className="block text-sm font-medium text-[--text-secondary] mb-1">启动命令</label>

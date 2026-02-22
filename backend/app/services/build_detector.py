@@ -441,14 +441,14 @@ class BuildDetector:
     @staticmethod
     def detect_project_type(files: list, root_directory: str = "") -> str:
         """
-        Detect whether a repository is a static/Node.js project or a Python project.
+        Detect whether a repository is a static/Node.js project, Python project, or Manul project.
 
         Args:
             files: List of file paths in the repository
             root_directory: Subdirectory path for monorepo support
 
         Returns:
-            "python" or "static"
+            "manul", "python", or "static"
         """
         root_dir = root_directory.strip("/") if root_directory else ""
         prefix = f"{root_dir}/" if root_dir else ""
@@ -460,6 +460,7 @@ class BuildDetector:
 
         has_python = False
         has_node = False
+        has_manul = False
 
         for file_path in files:
             if root_dir and not file_path.startswith(prefix):
@@ -467,7 +468,11 @@ class BuildDetector:
 
             relative_path = file_path[len(prefix):] if prefix else file_path
 
-            # Only check root-level files
+            # Check for .mnl files in src/ directory (Manul indicator)
+            if relative_path.startswith("src/") and relative_path.endswith(".mnl"):
+                has_manul = True
+
+            # Only check root-level files for other indicators
             if "/" in relative_path:
                 continue
 
@@ -475,6 +480,10 @@ class BuildDetector:
                 has_python = True
             if relative_path in node_indicators:
                 has_node = True
+
+        # Manul takes priority
+        if has_manul:
+            return "manul"
 
         # If both exist, prefer Node (might be a fullstack project with Python tooling)
         # If only Python indicators exist, it's a Python project

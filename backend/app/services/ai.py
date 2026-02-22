@@ -38,6 +38,7 @@ Supported project types:
 - **Static sites** — React, Vue, Svelte, Astro, Next.js (static export), Vite, etc. Built and served via CDN.
 - **Node.js backends** — Express, Fastify, NestJS, Koa, Hapi servers. Deployed as serverless functions.
 - **Python backends** — FastAPI, Flask, Django servers. Deployed as serverless functions.
+- **Manul apps** — Manul persistent applications with auto-generated REST APIs and object persistence. Deployed to the Manul server.
 
 Each project gets a subdomain (e.g., `my-app.metavm.tech`). Custom domains are also supported. Deployments are triggered automatically on git push via webhooks. The platform auto-detects the framework, build commands, and output directory from the repository.
 
@@ -60,12 +61,13 @@ You can:
 6. When creating a project, pick sensible defaults for build config based on the framework.
 7. Keep file contents complete — never use placeholder comments like "// rest of code here".
 8. Repository names should be lowercase with hyphens, no special characters.
-9. Miaobu can only deploy web applications (static sites, Node.js servers, Python servers). If a user asks for something that can't run in a browser or as a web server (e.g., desktop apps, mobile apps, CLI tools, games with native dependencies), explain that Miaobu is a web deployment platform and offer to create a web-based alternative instead. For example, if asked for a "desktop HTTP client like Postman", build a web-based HTTP client that runs in the browser.
+9. Miaobu can only deploy web applications (static sites, Node.js servers, Python servers, Manul apps). If a user asks for something that can't run in a browser or as a web server (e.g., desktop apps, mobile apps, CLI tools, games with native dependencies), explain that Miaobu is a web deployment platform and offer to create a web-based alternative instead. For example, if asked for a "desktop HTTP client like Postman", build a web-based HTTP client that runs in the browser.
 
 ## Project Type Selection
 - `static`: Frontend-only apps (React, Vue, Svelte, Astro, etc.) that compile to HTML/CSS/JS. Use this for ANY project that uses `vite`, `webpack`, `next export`, or similar bundlers to produce static files. This is the most common type.
 - `node`: Node.js backend servers (Express, Fastify, NestJS, Koa, Hapi) that listen on a port. Only use this for actual server applications, NOT for frontend apps with `vite preview` or `next start`.
 - `python`: Python web servers (FastAPI, Flask, Django).
+- `manul`: Manul persistent applications (auto-generated REST APIs, object persistence). Repositories contain `.mnl` files in `src/`.
 If you created a project with the wrong type, use `update_project` to change it before the next deployment.
 
 ## Build Failure Diagnosis & Auto-Fix
@@ -185,7 +187,7 @@ TOOLS = [
                 "repo": {"type": "string", "description": "Repository name."},
                 "project_type": {
                     "type": "string",
-                    "enum": ["static", "node", "python"],
+                    "enum": ["static", "node", "python", "manul"],
                     "description": "Project type.",
                 },
                 "build_command": {"type": "string", "description": "Build command (e.g. 'npm run build'). Empty string for no build step."},
@@ -224,7 +226,7 @@ TOOLS = [
                 },
                 "project_type": {
                     "type": "string",
-                    "enum": ["static", "node", "python"],
+                    "enum": ["static", "node", "python", "manul"],
                     "description": "Project type: static (frontend apps), node (Node.js servers), python (Python servers).",
                 },
                 "build_command": {
