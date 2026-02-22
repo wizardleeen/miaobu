@@ -32,9 +32,31 @@ const TOOL_LABELS: Record<string, string> = {
   wait_for_deployment: '等待部署完成',
 }
 
+function getToolSubtitle(tool: ToolCall): string | null {
+  const input = tool.input || {}
+  switch (tool.name) {
+    case 'commit_files':
+      return input.commit_message || null
+    case 'create_repository':
+      return input.name || null
+    case 'create_miaobu_project':
+      return input.project_type ? `${input.repo} (${input.project_type})` : input.repo || null
+    case 'read_file':
+      return input.path || null
+    case 'update_project':
+      return input.project_type ? `类型 → ${input.project_type}` : null
+    case 'get_deployment_logs':
+    case 'wait_for_deployment':
+      return input.deployment_id ? `#${input.deployment_id}` : null
+    default:
+      return null
+  }
+}
+
 function ToolCallCard({ tool }: { tool: ToolCall }) {
   const [expanded, setExpanded] = useState(false)
   const label = TOOL_LABELS[tool.name] || tool.name
+  const subtitle = getToolSubtitle(tool)
   const isDone = tool.status === 'done'
 
   return (
@@ -49,7 +71,9 @@ function ToolCallCard({ tool }: { tool: ToolCall }) {
           <Loader2 size={14} className="animate-spin text-accent shrink-0" />
         )}
         <Wrench size={14} className="shrink-0 text-[--text-tertiary]" />
-        <span className="flex-1 truncate">{label}</span>
+        <span className="flex-1 truncate">
+          {label}{subtitle && <span className="text-[--text-tertiary] font-normal"> · {subtitle}</span>}
+        </span>
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
       {expanded && (
