@@ -897,6 +897,45 @@ async def stream_chat(
                     accumulated_text += round_text
                     break
 
+                if response.stop_reason == "max_tokens":
+                    # Output was truncated — tell Claude so it can retry
+                    # with smaller tool calls (e.g., fewer files per commit)
+                    accumulated_text += round_text
+
+                    assistant_content = []
+                    if round_text:
+                        assistant_content.append({"type": "text", "text": round_text})
+                    # Include any complete tool_use blocks from truncated response
+                    for tb in tool_use_blocks:
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": tb.id,
+                            "name": tb.name,
+                            "input": tb.input,
+                        })
+
+                    if assistant_content:
+                        messages.append({"role": "assistant", "content": assistant_content})
+
+                    # Build tool results for any complete tool blocks
+                    truncation_results = []
+                    for tb in tool_use_blocks:
+                        truncation_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tb.id,
+                            "content": json.dumps({"error": "Output was truncated (max_tokens reached). Try breaking the operation into smaller steps — e.g., commit files in batches of 3-4 instead of all at once."}, ensure_ascii=False),
+                            "is_error": True,
+                        })
+
+                    if truncation_results:
+                        messages.append({"role": "user", "content": truncation_results})
+                    else:
+                        # No tool blocks — just tell Claude directly
+                        messages.append({"role": "user", "content": [{"type": "text", "text": "[System: Your output was truncated because it exceeded the maximum token limit. Please continue, and if you need to commit many files, do so in smaller batches of 3-4 files per commit.]"}]})
+
+                    await queue.put(_sse_event("text_delta", {"text": "\n\n[输出被截断，正在重试...]\n\n"}))
+                    continue
+
                 if response.stop_reason == "tool_use" and tool_use_blocks:
                     tool_results_for_api = []
                     round_tool_calls = []
