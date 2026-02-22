@@ -67,7 +67,7 @@ You can:
 - `static`: Frontend-only apps (React, Vue, Svelte, Astro, etc.) that compile to HTML/CSS/JS. Use this for ANY project that uses `vite`, `webpack`, `next export`, or similar bundlers to produce static files. This is the most common type.
 - `node`: Node.js backend servers (Express, Fastify, NestJS, Koa, Hapi) that listen on a port. Only use this for actual server applications, NOT for frontend apps with `vite preview` or `next start`.
 - `python`: Python web servers (FastAPI, Flask, Django).
-- `manul`: Manul persistent applications (auto-generated REST APIs, object persistence). Repositories contain `.mnl` files in `src/`.
+- `manul`: Manul persistent applications. **Before writing or modifying Manul code, call `get_manul_guide` first** to load the language reference.
 If you created a project with the wrong type, use `update_project` to change it before the next deployment.
 
 ## Build Failure Diagnosis & Auto-Fix
@@ -81,6 +81,602 @@ After committing code (via `commit_files`) that triggers a deployment:
    d. Call `wait_for_deployment` again to verify the fix worked.
    e. Repeat up to 3 attempts. If still failing, explain the issue to the user.
 4. Pushing a commit via `commit_files` auto-triggers deployment via webhook — do NOT call `trigger_deployment` afterward.
+"""
+
+# --------------------------------------------------------------------------- #
+# Manul guide (loaded on demand via get_manul_guide tool)
+# --------------------------------------------------------------------------- #
+
+MANUL_GUIDE = """## Manul Language Guide
+
+Manul is a persistent programming language. Its key features are:
+- **Automatic object persistence** — creating an object with `val x = Foo(...)` automatically persists it; `delete x` removes it.
+- **Automatic REST API generation** — service classes annotated with `@Bean` become REST endpoints.
+- **Automatic search indexing** — `Index<K, V>` fields enable fast lookups.
+
+### Project Structure
+Manul projects use `.mnl` files organized in `src/`:
+- `src/domain/` — Entity classes (persisted objects), enums, value classes
+- `src/service/` — Service classes with `@Bean` (become REST API endpoints)
+- `src/value/` — Value classes (immutable, embedded in entities)
+
+No `package.json`, no build config files. Just `.mnl` source files. Build command is `manul build`, producing `target/target.mva`.
+
+### Language Syntax
+
+**Packages & imports:**
+```
+package domain
+import domain.Product
+```
+
+**Entity classes** (persisted, have identity):
+```
+class Customer(
+    @Summary
+    var name: string,
+    val email: string,
+    password: string        // constructor-only param (not a field)
+) {
+    priv var passwordHash = secureHash(password, null)
+    static val emailIdx = Index<string, Customer>(true, c -> c.email)
+
+    fn checkPassword(password: string) -> bool {
+        return passwordHash == secureHash(password, null)
+    }
+}
+```
+- `val` = immutable field, `var` = mutable field
+- `priv` = private field
+- `@Summary` = included in list/summary views
+- Constructor parameters without `val`/`var` are constructor-only (not persisted fields)
+- `static val` for static fields like indexes
+
+**Value classes** (immutable, no identity, embedded):
+```
+value class Money(
+    val amount: double,
+    val currency: Currency
+) {
+    fn add(that: Money) -> Money {
+        return Money(amount + that.getAmount(currency), currency)
+    }
+}
+```
+
+**Enums:**
+```
+enum OrderStatus {
+    PENDING,
+    CONFIRMED,
+    CANCELLED
+;
+}
+
+// Enum with fields and methods:
+enum Currency(val rate: double) {
+    YUAN(7.2) {
+        fn label() -> string { return "元" }
+    },
+    DOLLAR(1) {
+        fn label() -> string { return "美元" }
+    }
+;
+    abstract fn label() -> string
+}
+```
+
+**Child classes** (owned by parent, deleted when parent is deleted):
+```
+class Order(...) {
+    class Item(
+        val product: Product,
+        val quantity: int
+    )
+}
+// Create child: order.Item(product, 1) — automatically owned by `order`
+```
+
+**Indexes & queries:**
+```
+// Unique index
+static val emailIdx = Index<string, Customer>(true, c -> c.email)
+// Non-unique index
+static val customerIdx = Index<Customer, Order>(false, o -> o.customer)
+// Composite index
+static val statusAndCreatedAtIdx = Index<OrderStatusAndTime, Order>(false, o -> OrderStatusAndTime(o.status, o.createdAt))
+
+// Query methods
+Customer.emailIdx.getFirst(email)       // returns T? (nullable)
+Order.customerIdx.getAll(customer)      // returns T[]
+Order.statusAndCreatedAtIdx.query(from, to)  // range query, returns T[]
+```
+
+**Service classes** (auto-generated REST endpoints):
+```
+@Bean
+class ProductService {
+    fn findProductByName(name: string) -> Product? {
+        return Product.nameIdx.getFirst(name)
+    }
+}
+```
+- `@Bean` makes the class a singleton with auto-generated REST endpoints
+- Each public method becomes a REST endpoint
+- `@CurrentUser customer: Customer` injects the authenticated user
+
+**Authentication:**
+```
+@Bean
+internal class TokenValidator: security.TokenValidator {
+    fn validate(token: string) -> any? {
+        val s = Session.tokenIdx.getFirst(token)
+        if (s != null && s!!.isValid())
+            return s!!.customer
+        else
+            return null
+    }
+}
+```
+Implementing `security.TokenValidator` enables `@CurrentUser` injection.
+
+**Init class** (runs once on first deployment):
+```
+@Bean
+class Init {
+    {
+        Customer("leen", "leen@manul.com", "123456")
+        Product("MacBook Pro", Money(14000, Currency.YUAN), 100, Category.ELECTRONICS)
+    }
+}
+```
+
+**Built-in functions:** `now()` (current timestamp as long), `uuid()` (random UUID string), `secureHash(value, salt)`.
+
+**Types:** `string`, `int`, `long`, `double`, `bool`, `any`. Nullable: `string?`, `int?`. Arrays: `string[]`, `Product[]`. Non-null assertion: `value!!`.
+
+**Control flow:**
+```
+if (condition) { ... } else { ... }
+for (i in 0...n) { ... }           // 0 to n-1
+for (child in children) { ... }     // iterate children
+array.forEach(item -> { ... })
+require(condition, "error message")  // throws if false
+```
+
+### Data Migration
+
+When you add new fields or change types of existing fields, you need to define migration functions so that Manul runtime knows how to migrate data to the new model. You **must not** throw exceptions in migration functions.
+
+**Example 1 — Field addition and type change:**
+
+Before:
+```
+class Product(
+    var name: string,
+    var price: double,
+    var stock: int
+)
+```
+
+After:
+```
+class Product(
+    var name: string,
+    var price: Price,
+    var stock: int,
+    var status: ProductStatus
+) {
+    priv fn __price__(price: double) -> Price {
+        return Price(price, Currency.CNY)
+    }
+
+    priv fn __status__() -> ProductStatus {
+        return ProductStatus.ACTIVE
+    }
+}
+```
+
+**Example 2 — Moving fields to child objects:**
+
+```
+class Product(
+    var name: string,
+    var status: ProductStatus
+) {
+    priv deleted var price: Price?
+    priv deleted var stock: int?
+
+    priv fn __run__() {
+        SKU("Default", price!!, stock!!)
+    }
+
+    class SKU(
+        var variant: string,
+        var price: Price,
+        var stock: int
+    )
+}
+```
+
+Important details:
+* When you need to access removed fields in migration, mark them as `deleted` instead of deleting. A `deleted` field must be nullable and private.
+* When a field declared in the class parameter list is marked as deleted, it has to be moved to the class body.
+* Remove `__run__` methods after the first deployment, otherwise they get rerun on subsequent deploys.
+
+**Example 3 — New class referenced in migration:**
+
+When creating a new class and a field referencing it at the same time, try to find an existing instance first:
+
+```
+class ProductionLine(var name: string) {
+    static allIdx = Index<bool, ProductionLine>(false, p -> true)
+}
+
+class ProductionTask(val plannedAmount: double, val productionLine: ProductionLine) {
+    var finishedAmount: double
+
+    fn __productionLine__() -> ProductionLine {
+        val existingPl = ProductionLine.allIdx.getFirst(true)
+        return existingPl == null ? ProductionLine("N/A") : existingPl!!
+    }
+}
+```
+
+**Example 4 — Removing an enum constant:**
+
+```
+class Product(
+  var name: string,
+  var price: double,
+  var kind: ProductKind
+) {
+    fn __run__() {
+        if (kind.name == "CLOTHING")
+            kind = ProductKind.OTHER
+    }
+}
+```
+
+Migration functions are also required for new fields or type-changed fields in value classes, because a value object can be persisted as part of an entity.
+
+### Complete Code Example (E-Commerce App)
+
+```
+@@ src/domain/currency.mnl @@
+package domain
+
+enum Currency(val rate: double) {
+    YUAN(7.2) {
+        fn label() -> string { return "元" }
+    },
+    DOLLAR(1) {
+        fn label() -> string { return "美元" }
+    },
+    POUND(0.75) {
+        fn label() -> string { return "英镑" }
+    },
+;
+    abstract fn label() -> string
+}
+
+@@ src/domain/money.mnl @@
+package domain
+
+value class Money(
+    val amount: double,
+    val currency: Currency
+) {
+    @Summary
+    priv val summary = amount + " " + currency.label()
+
+    fn add(that: Money) -> Money {
+        return Money(amount + that.getAmount(currency), currency)
+    }
+
+    fn sub(that: Money) -> Money {
+        return Money(amount - that.getAmount(currency), currency)
+    }
+
+    fn getAmount(currency: Currency) -> double {
+        return currency.rate / this.currency.rate * amount
+    }
+
+    fn times(n: int) -> Money {
+        return Money(amount * n, currency)
+    }
+}
+
+@@ src/domain/category.mnl @@
+package domain
+
+enum Category {
+    ELECTRONICS,
+    CLOTHING,
+    OTHER
+;
+}
+
+@@ src/domain/customer.mnl @@
+package domain
+
+class Customer(
+    @Summary
+    var name: string,
+    val email: string,
+    password: string
+) {
+    priv var passwordHash = secureHash(password, null)
+    static val emailIdx = Index<string, Customer>(true, c -> c.email)
+
+    fn checkPassword(password: string) -> bool {
+        return passwordHash == secureHash(password, null)
+    }
+}
+
+@@ src/domain/product.mnl @@
+package domain
+
+class Product(
+    @Summary
+    var name: string,
+    var price: Money,
+    var stock: int,
+    var category: Category
+) {
+    static val nameIdx = Index<string, Product>(true, p -> p.name)
+
+    fn reduceStock(quantity: int) {
+        require(stock >= quantity, "库存不足")
+        stock -= quantity
+    }
+
+    fn restock(quantity: int) {
+        require(quantity > 0, "补充数量必须大于0")
+        stock += quantity
+    }
+}
+
+@@ src/domain/session.mnl @@
+package domain
+
+class Session(
+    val customer: Customer
+) {
+    val token = uuid()
+    var expiry = now() + 30l * 24 * 60 * 60 * 1000
+    static val tokenIdx = Index<string, Session>(true, s -> s.token)
+
+    fn isValid() -> bool {
+        return expiry > now()
+    }
+}
+
+@@ src/domain/coupon.mnl @@
+package domain
+
+class Coupon(
+    @Summary
+    val title: string,
+    val discount: Money,
+    val expiry: long
+) {
+    var redeemed = false
+
+    fn redeem() -> Money {
+        require(now() > expiry, "优惠券已过期")
+        require(redeemed, "优惠券已核销")
+        redeemed = true
+        return discount
+    }
+}
+
+@@ src/domain/order_status.mnl @@
+package domain
+
+enum OrderStatus {
+    PENDING,
+    CONFIRMED,
+    CANCELLED,
+;
+}
+
+@@ src/domain/OrderStatusAndTime.mnl @@
+package domain
+
+value class OrderStatusAndTime(val status: OrderStatus, val time: long)
+
+@@ src/domain/order.mnl @@
+package domain
+
+class Order(
+    val customer: Customer,
+    val price: Money
+) {
+    static val statusAndCreatedAtIdx = Index<OrderStatusAndTime, Order>(false, o -> OrderStatusAndTime(o.status, o.createdAt))
+    static val customerIdx = Index<Customer, Order>(false, o -> o.customer)
+
+    val createdAt = now()
+    var status = OrderStatus.PENDING
+
+    fn confirm() {
+        require(status == OrderStatus.PENDING, "订单状态不允许确认")
+        status = OrderStatus.CONFIRMED
+    }
+
+    fn cancel() {
+        require(status == OrderStatus.PENDING, "订单状态不允许取消")
+        status = OrderStatus.CANCELLED
+        for (child in children) {
+            if (child is Item item)
+                item.product.restock(item.quantity)
+        }
+    }
+
+    class Item(
+        val product: Product,
+        val quantity: int
+    )
+}
+
+@@ src/value/login_result.mnl @@
+package value
+
+import domain.Customer
+
+value class LoginResult(
+    val successful: bool,
+    val token: string?
+)
+
+@@ src/service/product_service.mnl @@
+package service
+
+import domain.Product
+
+@Bean
+class ProductService {
+    fn findProductByName(name: string) -> Product? {
+        return Product.nameIdx.getFirst(name)
+    }
+}
+
+@@ src/service/customer_service.mnl @@
+package service
+
+import domain.Customer
+import domain.Session
+import value.LoginResult
+
+@Bean
+class CustomerService {
+    fn login(email: string, password: string) -> LoginResult {
+        val customer = Customer.emailIdx.getFirst(email)
+        if (customer != null) {
+            val session = Session(customer!!)
+            return LoginResult(true, session.token)
+        } else
+            return LoginResult(false, null)
+    }
+
+    fn register(name: string, email: string, password: string) -> LoginResult {
+        val c = Customer(name, email, password)
+        var s = Session(c)
+        return LoginResult(true, s.token)
+    }
+}
+
+@@ src/service/order_service.mnl @@
+package service
+
+import domain.Customer
+import domain.Product
+import domain.Coupon
+import domain.Order
+import domain.OrderStatus
+import domain.OrderStatusAndTime
+
+@Bean
+class OrderService {
+    static val PENDING_TIMEOUT = 15 * 60 * 1000
+
+    fn placeOrder(@CurrentUser customer: Customer, products: Product[], coupon: Coupon?) -> Order {
+        require(products.length > 0, "Missing products")
+        var price = products[0].price
+        for (i in 1...products.length) {
+            price = price.add(products[i].price)
+        }
+        if (coupon != null) {
+            price = price.sub(coupon!!.redeem())
+        }
+        val order = Order(customer, price)
+        products.forEach(p -> {
+            p.reduceStock(1)
+            order.Item(p, 1)
+        })
+        return order
+    }
+
+    fn getCustomerOrders(@CurrentUser customer: Customer) -> Order[] {
+        val orders = Order.customerIdx.getAll(customer)
+        orders.sort((o1, o2) -> o1.createdAt < o2.createdAt ? 1 : o1.createdAt == o2.createdAt ? 0 : -1)
+        return orders
+    }
+
+    fn confirmOrder(order: Order) {
+        order.confirm()
+    }
+
+    fn cancelOrder(order: Order) {
+        order.cancel()
+    }
+
+    fn cancelExpiredPendingOrders() {
+        val orders = Order.statusAndCreatedAtIdx.query(
+            OrderStatusAndTime(OrderStatus.PENDING, 0),
+            OrderStatusAndTime(OrderStatus.PENDING, now() - PENDING_TIMEOUT)
+        )
+        orders.forEach(o -> o.cancel())
+    }
+
+    fn deleteAllCancelledOrders() {
+        val orders = Order.statusAndCreatedAtIdx.query(
+            OrderStatusAndTime(OrderStatus.CANCELLED, 0),
+            OrderStatusAndTime(OrderStatus.CANCELLED, now())
+        )
+        orders.forEach(o -> {
+            delete o
+        })
+    }
+
+    fn deleteAllCustomerOrders(@CurrentUser customer: Customer) {
+        val orders = Order.customerIdx.getAll(customer)
+        orders.forEach(o -> {
+            delete o
+        })
+    }
+}
+
+@@ src/service/token_validator.mnl @@
+package service
+
+import domain.Session
+
+@Bean
+internal class TokenValidator: security.TokenValidator {
+    fn validate(token: string) -> any? {
+        val s = Session.tokenIdx.getFirst(token)
+        if (s != null && s!!.isValid())
+            return s!!.customer
+        else
+            return null
+    }
+}
+
+@@ src/service/init.mnl @@
+import domain.Customer
+import domain.Product
+import domain.Money
+import domain.Currency
+import domain.Category
+
+@Bean
+class Init {
+    {
+        Customer("leen", "leen@manul.com", "123456")
+        Product("MacBook Pro", Money(14000, Currency.YUAN), 100, Category.ELECTRONICS)
+    }
+}
+```
+
+### Manul Endpoint Reference
+Manul auto-generates REST endpoints. For details see: https://docs.metavm.tech/guides/endpoint/
+
+### Manul Project Workflow
+1. Create repo with `.mnl` files in `src/`
+2. Create Miaobu project with `project_type: "manul"` — this automatically creates an app on the Manul server
+3. Deployment flow: GHA builds with `manul build` → uploads `target/target.mva` → Miaobu deploys to Manul server
+4. The deployment URL is on the Manul server (e.g., `https://api.metavm.tech/{app-name}/`)
 """
 
 # --------------------------------------------------------------------------- #
@@ -379,6 +975,15 @@ TOOLS = [
                 },
             },
             "required": ["project_id", "key"],
+        },
+    },
+    {
+        "name": "get_manul_guide",
+        "description": "Get the Manul programming language guide with syntax reference, project structure, data migration patterns, and code examples. Call this before creating or modifying Manul projects.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
         },
     },
 ]
@@ -992,6 +1597,12 @@ async def _exec_delete_env_var(
     return {"deleted": True, "key": key, "environment": environment}
 
 
+async def _exec_get_manul_guide(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    return {"guide": MANUL_GUIDE}
+
+
 # Dispatch table
 TOOL_EXECUTORS = {
     "list_user_projects": _exec_list_user_projects,
@@ -1009,6 +1620,7 @@ TOOL_EXECUTORS = {
     "list_env_vars": _exec_list_env_vars,
     "set_env_var": _exec_set_env_var,
     "delete_env_var": _exec_delete_env_var,
+    "get_manul_guide": _exec_get_manul_guide,
 }
 
 
