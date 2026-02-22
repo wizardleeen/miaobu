@@ -29,14 +29,26 @@ settings = get_settings()
 # System prompt
 # --------------------------------------------------------------------------- #
 
-SYSTEM_PROMPT = """You are Miaobu AI, an intelligent assistant integrated into the Miaobu deployment platform. You help users create new web projects and modify existing ones.
+SYSTEM_PROMPT = """You are Miaobu AI (秒部 AI), an intelligent assistant integrated into the Miaobu deployment platform. You help users create new web projects and modify existing ones.
+
+## About Miaobu
+Miaobu (秒部, a wordplay on 喵步 "cat steps") is a Vercel-like deployment platform that deploys GitHub repositories to the cloud. Users connect their GitHub account, import a repo, and Miaobu automatically builds and deploys it.
+
+Supported project types:
+- **Static sites** — React, Vue, Svelte, Astro, Next.js (static export), Vite, etc. Built and served via CDN.
+- **Node.js backends** — Express, Fastify, NestJS, Koa, Hapi servers. Deployed as serverless functions.
+- **Python backends** — FastAPI, Flask, Django servers. Deployed as serverless functions.
+
+Each project gets a subdomain (e.g., `my-app.metavm.tech`). Custom domains are also supported. Deployments are triggered automatically on git push via webhooks. The platform auto-detects the framework, build commands, and output directory from the repository.
 
 ## Capabilities
 You can:
 - Create new GitHub repositories and scaffold complete web projects (React, Vue, Next.js, FastAPI, Flask, Express, etc.)
 - Read and modify files in existing project repositories
 - Create Miaobu projects from repositories and trigger deployments
+- Update project settings (project type, build commands, etc.)
 - List and inspect the user's existing projects
+- Monitor deployments, read build logs, and automatically diagnose and fix build failures
 
 ## Guidelines
 1. Detect the user's language from their messages and respond in the same language (default: Chinese).
@@ -47,6 +59,25 @@ You can:
 6. When creating a project, pick sensible defaults for build config based on the framework.
 7. Keep file contents complete — never use placeholder comments like "// rest of code here".
 8. Repository names should be lowercase with hyphens, no special characters.
+9. Miaobu can only deploy web applications (static sites, Node.js servers, Python servers). If a user asks for something that can't run in a browser or as a web server (e.g., desktop apps, mobile apps, CLI tools, games with native dependencies), explain that Miaobu is a web deployment platform and offer to create a web-based alternative instead. For example, if asked for a "desktop HTTP client like Postman", build a web-based HTTP client that runs in the browser.
+
+## Project Type Selection
+- `static`: Frontend-only apps (React, Vue, Svelte, Astro, etc.) that compile to HTML/CSS/JS. Use this for ANY project that uses `vite`, `webpack`, `next export`, or similar bundlers to produce static files. This is the most common type.
+- `node`: Node.js backend servers (Express, Fastify, NestJS, Koa, Hapi) that listen on a port. Only use this for actual server applications, NOT for frontend apps with `vite preview` or `next start`.
+- `python`: Python web servers (FastAPI, Flask, Django).
+If you created a project with the wrong type, use `update_project` to change it before the next deployment.
+
+## Build Failure Diagnosis & Auto-Fix
+After committing code (via `commit_files`) that triggers a deployment:
+1. Call `wait_for_deployment` to monitor the build until it completes.
+2. If the deployment succeeds, inform the user with the live URL.
+3. If the deployment fails:
+   a. The wait result includes build logs and error message — analyze the error.
+   b. Use `read_file` to examine the source files causing the failure.
+   c. Use `commit_files` to push a fix (this auto-triggers a new deployment via webhook).
+   d. Call `wait_for_deployment` again to verify the fix worked.
+   e. Repeat up to 3 attempts. If still failing, explain the issue to the user.
+4. Pushing a commit via `commit_files` auto-triggers deployment via webhook — do NOT call `trigger_deployment` afterward.
 """
 
 # --------------------------------------------------------------------------- #
@@ -175,6 +206,103 @@ TOOLS = [
                 "project_id": {
                     "type": "integer",
                     "description": "The Miaobu project ID to deploy.",
+                },
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "update_project",
+        "description": "Update a Miaobu project's settings (project type, build/install/start commands, output directory, etc.). Use this to fix misconfigured projects.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "project_type": {
+                    "type": "string",
+                    "enum": ["static", "node", "python"],
+                    "description": "Project type: static (frontend apps), node (Node.js servers), python (Python servers).",
+                },
+                "build_command": {
+                    "type": "string",
+                    "description": "Build command (e.g., 'npm run build').",
+                },
+                "install_command": {
+                    "type": "string",
+                    "description": "Install command (e.g., 'npm install').",
+                },
+                "output_directory": {
+                    "type": "string",
+                    "description": "Build output directory (e.g., 'dist').",
+                },
+                "start_command": {
+                    "type": "string",
+                    "description": "Start command for node/python projects (e.g., 'node server.js').",
+                },
+                "node_version": {
+                    "type": "string",
+                    "description": "Node.js version (e.g., '18', '20').",
+                },
+                "is_spa": {
+                    "type": "boolean",
+                    "description": "Whether the static site is a Single Page Application.",
+                },
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "list_project_deployments",
+        "description": "List recent deployments for a project, including status, commit info, error messages, and timing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of deployments to return (default 5, max 20).",
+                },
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "get_deployment_logs",
+        "description": "Get full build logs and error details for a specific deployment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "deployment_id": {
+                    "type": "integer",
+                    "description": "The deployment ID.",
+                },
+            },
+            "required": ["project_id", "deployment_id"],
+        },
+    },
+    {
+        "name": "wait_for_deployment",
+        "description": "Wait for the latest in-progress deployment to reach a terminal state (deployed/failed/cancelled). Polls every 10 seconds, up to 5 minutes. Returns final status, build logs, and error message if failed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "deployment_id": {
+                    "type": "integer",
+                    "description": "Optional specific deployment ID to wait for. If omitted, waits for the latest in-progress deployment.",
                 },
             },
             "required": ["project_id"],
@@ -391,6 +519,216 @@ async def _exec_create_miaobu_project(
     }
 
 
+async def _exec_update_project(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    updatable_fields = [
+        "project_type", "build_command", "install_command",
+        "output_directory", "start_command", "node_version", "is_spa",
+    ]
+    updated = []
+    for field in updatable_fields:
+        if field in tool_input:
+            old_value = getattr(project, field)
+            new_value = tool_input[field]
+            setattr(project, field, new_value)
+            updated.append(f"{field}: {old_value!r} -> {new_value!r}")
+
+    if not updated:
+        return {"error": "No fields to update."}
+
+    db.commit()
+    return {
+        "project_id": project.id,
+        "updated": updated,
+        "current_settings": {
+            "project_type": project.project_type,
+            "build_command": project.build_command,
+            "install_command": project.install_command,
+            "output_directory": project.output_directory,
+            "start_command": project.start_command,
+            "node_version": project.node_version,
+            "is_spa": project.is_spa,
+        },
+    }
+
+
+async def _exec_list_project_deployments(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    limit = min(tool_input.get("limit", 5), 20)
+    deployments = (
+        db.query(Deployment)
+        .filter(Deployment.project_id == project.id)
+        .order_by(Deployment.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "project_id": project.id,
+        "deployments": [
+            {
+                "id": d.id,
+                "status": d.status.value,
+                "commit_sha": d.commit_sha[:8] if d.commit_sha else None,
+                "commit_message": d.commit_message,
+                "error_message": d.error_message,
+                "build_time_seconds": d.build_time_seconds,
+                "deployment_url": d.deployment_url,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+                "deployed_at": d.deployed_at.isoformat() if d.deployed_at else None,
+            }
+            for d in deployments
+        ],
+    }
+
+
+async def _exec_get_deployment_logs(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    deployment = (
+        db.query(Deployment)
+        .filter(
+            Deployment.id == tool_input["deployment_id"],
+            Deployment.project_id == project.id,
+        )
+        .first()
+    )
+    if not deployment:
+        return {"error": "Deployment not found."}
+
+    build_logs = deployment.build_logs or ""
+    # Truncate to last 8000 chars — errors are at the end
+    if len(build_logs) > 8000:
+        build_logs = "...(truncated)...\n" + build_logs[-8000:]
+
+    return {
+        "deployment_id": deployment.id,
+        "status": deployment.status.value,
+        "build_logs": build_logs,
+        "error_message": deployment.error_message,
+    }
+
+
+async def _exec_wait_for_deployment(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    from ..database import SessionLocal
+
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    project_id = project.id
+    target_deployment_id = tool_input.get("deployment_id")
+    terminal_statuses = {
+        DeploymentStatus.DEPLOYED,
+        DeploymentStatus.FAILED,
+        DeploymentStatus.CANCELLED,
+        DeploymentStatus.PURGED,
+    }
+    max_polls = 30  # 30 * 10s = 5 minutes
+
+    for _ in range(max_polls):
+        poll_db = SessionLocal()
+        try:
+            if target_deployment_id:
+                dep = (
+                    poll_db.query(Deployment)
+                    .filter(
+                        Deployment.id == target_deployment_id,
+                        Deployment.project_id == project_id,
+                    )
+                    .first()
+                )
+            else:
+                dep = (
+                    poll_db.query(Deployment)
+                    .filter(Deployment.project_id == project_id)
+                    .order_by(Deployment.created_at.desc())
+                    .first()
+                )
+
+            if not dep:
+                return {"error": "No deployment found for this project."}
+
+            if dep.status in terminal_statuses:
+                build_logs = dep.build_logs or ""
+                if len(build_logs) > 8000:
+                    build_logs = "...(truncated)...\n" + build_logs[-8000:]
+                return {
+                    "deployment_id": dep.id,
+                    "status": dep.status.value,
+                    "build_logs": build_logs if dep.status == DeploymentStatus.FAILED else "",
+                    "error_message": dep.error_message,
+                    "deployment_url": dep.deployment_url,
+                    "build_time_seconds": dep.build_time_seconds,
+                }
+        finally:
+            poll_db.close()
+
+        await asyncio.sleep(10)
+
+    # Timeout — return current state
+    poll_db = SessionLocal()
+    try:
+        if target_deployment_id:
+            dep = (
+                poll_db.query(Deployment)
+                .filter(
+                    Deployment.id == target_deployment_id,
+                    Deployment.project_id == project_id,
+                )
+                .first()
+            )
+        else:
+            dep = (
+                poll_db.query(Deployment)
+                .filter(Deployment.project_id == project_id)
+                .order_by(Deployment.created_at.desc())
+                .first()
+            )
+        if dep:
+            return {
+                "deployment_id": dep.id,
+                "status": dep.status.value,
+                "error_message": dep.error_message,
+                "timed_out": True,
+                "note": "Deployment did not reach a terminal state within 5 minutes.",
+            }
+        return {"error": "No deployment found.", "timed_out": True}
+    finally:
+        poll_db.close()
+
+
 async def _exec_trigger_deployment(
     tool_input: Dict[str, Any], user: User, db: Session
 ) -> Dict[str, Any]:
@@ -458,6 +796,10 @@ TOOL_EXECUTORS = {
     "commit_files": _exec_commit_files,
     "create_miaobu_project": _exec_create_miaobu_project,
     "trigger_deployment": _exec_trigger_deployment,
+    "update_project": _exec_update_project,
+    "list_project_deployments": _exec_list_project_deployments,
+    "get_deployment_logs": _exec_get_deployment_logs,
+    "wait_for_deployment": _exec_wait_for_deployment,
 }
 
 
@@ -479,7 +821,7 @@ async def _execute_tool(
 # Chat orchestration (SSE streaming)
 # --------------------------------------------------------------------------- #
 
-MAX_TOOL_ROUNDS = 15
+MAX_TOOL_ROUNDS = 25
 SONNET_MODEL = "claude-sonnet-4-20250514"
 OPUS_MODEL = "claude-opus-4-0-20250514"
 
@@ -632,7 +974,7 @@ async def stream_chat(
                 response = await asyncio.to_thread(
                     client.messages.create,
                     model=model,
-                    max_tokens=16384,
+                    max_tokens=32768,
                     system=SYSTEM_PROMPT,
                     tools=TOOLS,
                     messages=messages,
@@ -658,6 +1000,45 @@ async def stream_chat(
                 if response.stop_reason == "end_turn":
                     accumulated_text += round_text
                     break
+
+                if response.stop_reason == "max_tokens":
+                    # Output was truncated — tell Claude so it can retry
+                    # with smaller tool calls (e.g., fewer files per commit)
+                    accumulated_text += round_text
+
+                    assistant_content = []
+                    if round_text:
+                        assistant_content.append({"type": "text", "text": round_text})
+                    # Include any complete tool_use blocks from truncated response
+                    for tb in tool_use_blocks:
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": tb.id,
+                            "name": tb.name,
+                            "input": tb.input,
+                        })
+
+                    if assistant_content:
+                        messages.append({"role": "assistant", "content": assistant_content})
+
+                    # Build tool results for any complete tool blocks
+                    truncation_results = []
+                    for tb in tool_use_blocks:
+                        truncation_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tb.id,
+                            "content": json.dumps({"error": "Output was truncated (max_tokens reached). Try breaking the operation into smaller steps — e.g., commit files in batches of 3-4 instead of all at once."}, ensure_ascii=False),
+                            "is_error": True,
+                        })
+
+                    if truncation_results:
+                        messages.append({"role": "user", "content": truncation_results})
+                    else:
+                        # No tool blocks — just tell Claude directly
+                        messages.append({"role": "user", "content": [{"type": "text", "text": "[System: Your output was truncated because it exceeded the maximum token limit. Please continue, and if you need to commit many files, do so in smaller batches of 3-4 files per commit.]"}]})
+
+                    await queue.put(_sse_event("text_delta", {"text": "\n\n[输出被截断，正在重试...]\n\n"}))
+                    continue
 
                 if response.stop_reason == "tool_use" and tool_use_blocks:
                     tool_results_for_api = []
@@ -735,6 +1116,22 @@ async def stream_chat(
 
         except Exception as e:
             traceback.print_exc()
+            # Save whatever was accumulated so context isn't lost
+            if accumulated_text or accumulated_tool_calls:
+                try:
+                    err_db = SessionLocal()
+                    err_msg = ChatMessage(
+                        session_id=session_id,
+                        role="assistant",
+                        content=accumulated_text + f"\n\n[错误: {str(e)}]",
+                        tool_calls=json.dumps(accumulated_tool_calls, ensure_ascii=False) if accumulated_tool_calls else None,
+                        tool_results=json.dumps(accumulated_tool_results, ensure_ascii=False) if accumulated_tool_results else None,
+                    )
+                    err_db.add(err_msg)
+                    err_db.commit()
+                    err_db.close()
+                except Exception:
+                    pass  # Best-effort save
             await queue.put(_sse_event("error", {"message": str(e)}))
         finally:
             producer_done.set()
