@@ -146,7 +146,7 @@ jobs:
         working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
         run: |
           echo "=== Installing dependencies ==="
-          ${{ steps.cfg.outputs.install_command }} 2>&1 | tail -20
+          ${{ steps.cfg.outputs.install_command }} 2>&1 | tee -a /tmp/build_output.log | tail -20
           echo "=== Install complete ==="
 
       - name: Build
@@ -154,7 +154,7 @@ jobs:
         run: |
           echo "=== Running build ==="
           START=$(date +%s)
-          ${{ steps.cfg.outputs.build_command }} 2>&1
+          ${{ steps.cfg.outputs.build_command }} 2>&1 | tee -a /tmp/build_output.log
           END=$(date +%s)
           echo "build_seconds=$((END - START))" >> "$GITHUB_ENV"
           echo "=== Build complete ($((END - START))s) ==="
@@ -165,8 +165,8 @@ jobs:
         run: |
           OUTPUT_DIR="${{ steps.cfg.outputs.output_directory }}"
           if [ ! -d "$OUTPUT_DIR" ]; then
-            echo "ERROR: Output directory '$OUTPUT_DIR' not found"
-            ls -la
+            echo "ERROR: Output directory '$OUTPUT_DIR' not found" | tee -a /tmp/build_output.log
+            ls -la | tee -a /tmp/build_output.log
             exit 1
           fi
           FILE_COUNT=$(find "$OUTPUT_DIR" -type f | wc -l)
@@ -198,12 +198,20 @@ jobs:
         if: failure()
         run: |
           BODY=$(python3 -c "
-          import json
+          import json, os
+          build_log = ''
+          if os.path.exists('/tmp/build_output.log'):
+              with open('/tmp/build_output.log', 'r', errors='replace') as f:
+                  build_log = f.read()
+              # Keep last 6000 chars (errors are at the end)
+              if len(build_log) > 6000:
+                  build_log = '...(truncated)...\n' + build_log[-6000:]
+          run_url = 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
           print(json.dumps({
             'deployment_id': ${{ github.event.client_payload.deployment_id }},
             'status': 'failed',
             'error_message': 'GitHub Actions build failed — check workflow logs',
-            'build_logs': 'Build failed. See GitHub Actions run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n'
+            'build_logs': build_log + '\nSee full logs: ' + run_url + '\n'
           }))
           ")
           chmod +x .github/scripts/callback.sh
@@ -287,9 +295,9 @@ jobs:
           echo "=== Installing Python dependencies ==="
           START=$(date +%s)
           if [ -f "requirements.txt" ]; then
-            pip install --no-cache-dir -r requirements.txt --target python_deps/
+            pip install --no-cache-dir -r requirements.txt --target python_deps/ 2>&1 | tee -a /tmp/build_output.log | tail -20
           elif [ -f "pyproject.toml" ]; then
-            pip install --no-cache-dir . --target python_deps/
+            pip install --no-cache-dir . --target python_deps/ 2>&1 | tee -a /tmp/build_output.log | tail -20
           else
             echo "No requirements.txt or pyproject.toml found, skipping"
           fi
@@ -303,7 +311,7 @@ jobs:
         run: |
           COMMIT_TAG=$(echo "${{ github.event.client_payload.commit_sha }}" | cut -c1-12)
           ZIP_NAME="${{ github.event.client_payload.project_slug }}-${COMMIT_TAG}.zip"
-          zip -r "/tmp/${ZIP_NAME}" . -x ".git/*" "__pycache__/*" "*.pyc"
+          zip -r "/tmp/${ZIP_NAME}" . -x ".git/*" "__pycache__/*" "*.pyc" 2>&1 | tee -a /tmp/build_output.log | tail -5
           SIZE=$(du -h "/tmp/${ZIP_NAME}" | cut -f1)
           echo "Code package: ${ZIP_NAME} (${SIZE})"
           echo "zip_path=/tmp/${ZIP_NAME}" >> "$GITHUB_OUTPUT"
@@ -344,12 +352,19 @@ jobs:
         if: failure()
         run: |
           BODY=$(python3 -c "
-          import json
+          import json, os
+          build_log = ''
+          if os.path.exists('/tmp/build_output.log'):
+              with open('/tmp/build_output.log', 'r', errors='replace') as f:
+                  build_log = f.read()
+              if len(build_log) > 6000:
+                  build_log = '...(truncated)...\n' + build_log[-6000:]
+          run_url = 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
           print(json.dumps({
             'deployment_id': ${{ github.event.client_payload.deployment_id }},
             'status': 'failed',
             'error_message': 'GitHub Actions Python build failed — check workflow logs',
-            'build_logs': 'Build failed. See GitHub Actions run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n'
+            'build_logs': build_log + '\nSee full logs: ' + run_url + '\n'
           }))
           ")
           chmod +x .github/scripts/callback.sh
@@ -489,7 +504,7 @@ jobs:
         run: |
           echo "=== Installing dependencies ==="
           START=$(date +%s)
-          ${{ steps.cfg.outputs.install_command }} 2>&1 | tail -20
+          ${{ steps.cfg.outputs.install_command }} 2>&1 | tee -a /tmp/build_output.log | tail -20
           END=$(date +%s)
           echo "build_seconds=$((END - START))" >> "$GITHUB_ENV"
           echo "=== Install complete ($((END - START))s) ==="
@@ -509,7 +524,7 @@ jobs:
           fi
           echo "=== Running build ==="
           BUILD_START=$(date +%s)
-          $BUILD_CMD 2>&1
+          $BUILD_CMD 2>&1 | tee -a /tmp/build_output.log
           BUILD_END=$(date +%s)
           echo "build_seconds=$(( ${build_seconds:-0} + BUILD_END - BUILD_START ))" >> "$GITHUB_ENV"
           echo "=== Build complete ($((BUILD_END - BUILD_START))s) ==="
@@ -520,11 +535,11 @@ jobs:
           echo "=== Pruning dev dependencies ==="
           PM="${{ steps.pm.outputs.manager }}"
           if [ "$PM" = "pnpm" ]; then
-            pnpm prune --prod
+            pnpm prune --prod 2>&1 | tee -a /tmp/build_output.log | tail -5
           elif [ "$PM" = "yarn" ]; then
-            yarn install --production --ignore-scripts
+            yarn install --production --ignore-scripts 2>&1 | tee -a /tmp/build_output.log | tail -5
           else
-            npm prune --production
+            npm prune --production 2>&1 | tee -a /tmp/build_output.log | tail -5
           fi
           echo "=== Prune complete ==="
 
@@ -577,12 +592,19 @@ jobs:
         if: failure()
         run: |
           BODY=$(python3 -c "
-          import json
+          import json, os
+          build_log = ''
+          if os.path.exists('/tmp/build_output.log'):
+              with open('/tmp/build_output.log', 'r', errors='replace') as f:
+                  build_log = f.read()
+              if len(build_log) > 6000:
+                  build_log = '...(truncated)...\n' + build_log[-6000:]
+          run_url = 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
           print(json.dumps({
             'deployment_id': ${{ github.event.client_payload.deployment_id }},
             'status': 'failed',
             'error_message': 'GitHub Actions Node.js build failed — check workflow logs',
-            'build_logs': 'Build failed. See GitHub Actions run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n'
+            'build_logs': build_log + '\nSee full logs: ' + run_url + '\n'
           }))
           ")
           chmod +x .github/scripts/callback.sh

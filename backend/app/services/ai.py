@@ -1116,6 +1116,22 @@ async def stream_chat(
 
         except Exception as e:
             traceback.print_exc()
+            # Save whatever was accumulated so context isn't lost
+            if accumulated_text or accumulated_tool_calls:
+                try:
+                    err_db = SessionLocal()
+                    err_msg = ChatMessage(
+                        session_id=session_id,
+                        role="assistant",
+                        content=accumulated_text + f"\n\n[错误: {str(e)}]",
+                        tool_calls=json.dumps(accumulated_tool_calls, ensure_ascii=False) if accumulated_tool_calls else None,
+                        tool_results=json.dumps(accumulated_tool_results, ensure_ascii=False) if accumulated_tool_results else None,
+                    )
+                    err_db.add(err_msg)
+                    err_db.commit()
+                    err_db.close()
+                except Exception:
+                    pass  # Best-effort save
             await queue.put(_sse_event("error", {"message": str(e)}))
         finally:
             producer_done.set()

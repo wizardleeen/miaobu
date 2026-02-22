@@ -8,19 +8,15 @@ Miaobu is a Vercel-like deployment platform that deploys GitHub repositories to 
 ### Services (docker-compose)
 - **backend** (port 8000): FastAPI API server
 - **frontend** (port 3000): React + Vite + TypeScript UI
-- **postgres** (port 5433): PostgreSQL 16 database
+- **postgres** (port 5432): PostgreSQL 16 database
 - **redis** (port 6379): Redis
 
-### Traffic Routing (ESA-only architecture)
-ALL traffic routes through Aliyun ESA (Edge Security Acceleration):
-```
-*.metavm.tech  →  ESA  →  Edge Routine  →  KV lookup  →  OSS (static) or FC (Node.js/Python)
-custom domains →  ESA  →  Edge Routine  →  KV lookup  →  OSS (static) or FC (Node.js/Python)
-```
+### Traffic Routing
+- **Static sites**: `*.metavm.tech` → ESA → Edge Routine → KV lookup → OSS
+- **Backend apps (Python/Node.js)**: `*.metavm.tech` → DNS CNAME → FC custom domain (direct HTTPS, bypasses ESA)
+- **External custom domains**: → ESA → Edge Routine → KV lookup → OSS or FC proxy
 - **Edge Routine** (`edge-routine.js`): ES Module format, uses `new EdgeKV({ namespace: "miaobu" })` for routing decisions
-- **Static sites**: Edge Routine rewrites URL path (keeps same host for ESA caching), ESA fetches from OSS origin
-- **Node.js/Python apps**: Edge Routine proxies directly to Function Compute endpoint (bypasses cache, adds `Cache-Control: no-store`)
-- CDN product is NOT used. All routing goes through ESA.
+- CDN product is NOT used. Static routing goes through ESA; backend routing goes direct to FC.
 
 ### Key Aliyun Services
 - **OSS**: Object storage for static build artifacts. Path: `projects/{slug}/{deployment_id}/`
@@ -199,6 +195,17 @@ Value (JSON):
 
 ## Deployment & Operations
 
+### Environments
+- **Production**: Push to `main` branch → miaobu deploys itself (project `miaobu1`, ID 18). Backend: `miaobu1.metavm.tech`. Frontend: `miaobu1-fe.metavm.tech`.
+- **Staging**: Push to `staging` branch → staging deployment of the same `miaobu1` project. Backend: `miaobu1-staging.metavm.tech`.
+- Both environments are deployed on Miaobu's own platform (self-hosting). Staging is enabled via the project's `staging_enabled` flag.
+
+### Databases
+- Both databases are on the local server at port 5432.
+- **Production DB**: `miaobu` (used by the production backend)
+- **Staging DB**: `miaobu_staging` (used by the staging backend)
+- These are separate databases — users, tokens, projects, and deployments are NOT shared between them.
+
 ### Code Deployment
 Code is deployed via `git push` to the `main` branch. Docker containers are **no longer used** for deployment. A push to main triggers the hosting platform to redeploy backend and frontend automatically.
 
@@ -237,4 +244,34 @@ Done automatically during deploy via `esa_service.purge_host_cache([hostname])`.
 ## Base Domain
 The base domain is `metavm.tech` (configured as `cdn_base_domain` in settings).
 Subdomains: `{slug}.metavm.tech`
+
+## FC Custom Domains (Backend Apps)
+Backend apps (Python/Node.js) route directly to FC via custom domains, bypassing ESA. This eliminates ESA's ~2 minute hard streaming timeout for SSE connections (e.g., AI chat).
+
+### How it works
+- Deploy flow creates an FC custom domain for `{slug}.{cdn_base_domain}` and a DNS CNAME pointing to the FC hostname
+- HTTPS uses Aliyun-managed wildcard certificates configured via `fc_wildcard_cert_name`, `fc_wildcard_cert_pem`, `fc_wildcard_cert_key` in settings
+- Wildcard cert identifiers on Aliyun: `metavm-wildcard` = `23539812-cn-hangzhou`, `kyvy-wildcard` = `23574296-cn-hangzhou`
+- FC custom domain methods: `fc_service.create_or_update_custom_domain()`, `fc_service.delete_custom_domain()`, `fc_service.get_custom_domain()`
+- DNS methods: `dns_service.add_cname_record()` (upsert), `dns_service.delete_cname_record()`
+
+### Platform-subdomain custom domains
+Custom domains that are `*.{cdn_base_domain}` subdomains (e.g., `miaobu-api.metavm.tech` pointing to a backend project) also need their own FC custom domain + DNS CNAME. The `_sync_custom_domains_fc()` function in deploy.py handles this — it calls `_setup_fc_direct_domain()` for platform subdomains instead of Edge KV.
+
+### Project deletion cleanup
+When deleting backend projects: FC custom domain + DNS CNAME must be cleaned up for both the project subdomain and any platform-subdomain custom domains.
+
+## AI Chat Feature
+- **Backend**: `backend/app/services/ai.py` — Claude tool-use loop with SSE streaming
+- **Models**: `ChatSession`, `ChatMessage` in `backend/app/models/__init__.py`
+- **Endpoint**: SSE streaming via `prepare_chat()` + `stream_chat()` generator
+- **Anthropic client**: Uses explicit `httpx.Client(proxy=settings.http_proxy, timeout=600.0)` — the proxy is REQUIRED for FC to reach external APIs. Do NOT remove the explicit httpx client.
+- **Keepalive**: Queue-based approach sends SSE comments every 5s to prevent proxy idle-timeout
+- **Tools**: list_user_projects, get_project_details, list_repo_files, read_file, create_repository, commit_files, create_miaobu_project, trigger_deployment
+- **Max tool rounds**: 15, uses `claude-sonnet-4-20250514` model
+
+### AI Chat Gotchas
+- The `_sse_event()` helper function formats all SSE events. Without it, streams return empty 200 responses.
+- The Anthropic SDK does NOT reliably auto-read `HTTP_PROXY` from env vars in FC. Always use explicit `httpx.Client(proxy=...)`.
+- When modifying `ai.py`, change ONLY what's needed. Accidental deletion of helper functions (like `_sse_event`) breaks the entire chat silently.
 
