@@ -33,6 +33,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_env_vars: '查看环境变量',
   set_env_var: '设置环境变量',
   delete_env_var: '删除环境变量',
+  get_manul_guide: '加载 Manul 指南',
 }
 
 function getToolSubtitle(tool: ToolCall): string | null {
