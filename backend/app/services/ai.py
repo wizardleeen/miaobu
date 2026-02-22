@@ -810,7 +810,7 @@ async def _execute_tool(
 # Chat orchestration (SSE streaming)
 # --------------------------------------------------------------------------- #
 
-MAX_TOOL_ROUNDS = 15
+MAX_TOOL_ROUNDS = 25
 SONNET_MODEL = "claude-sonnet-4-20250514"
 OPUS_MODEL = "claude-opus-4-0-20250514"
 
