@@ -70,6 +70,16 @@ You can:
 - `manul`: Manul persistent applications. **Before writing or modifying Manul code, call `get_manul_guide` first** to load the language reference.
 If you created a project with the wrong type, use `update_project` to change it before the next deployment.
 
+## Monorepo / Full-Stack Projects
+When a project has both frontend and backend in one repo (e.g., `frontend/` and `backend/` directories):
+- Create ONE GitHub repository with subdirectories
+- Import EACH subdirectory as a SEPARATE Miaobu project using `root_directory`
+- Example: a React + FastAPI app needs two `create_miaobu_project` calls:
+  1. `root_directory: "frontend"`, `project_type: "static"`
+  2. `root_directory: "backend"`, `project_type: "python"`
+- Each project gets its own slug, domain, and deployment pipeline
+- Never try to deploy a monorepo as a single project with `cd` hacks in build commands
+
 ## Build Failure Diagnosis & Auto-Fix
 After committing code (via `commit_files`) that triggers a deployment:
 1. Call `wait_for_deployment` to monitor the build until it completes.
@@ -792,6 +802,7 @@ TOOLS = [
                 "start_command": {"type": "string", "description": "Start command for node/python projects."},
                 "node_version": {"type": "string", "description": "Node.js version (e.g. '18', '20')."},
                 "python_version": {"type": "string", "description": "Python version (e.g. '3.11')."},
+                "root_directory": {"type": "string", "description": "Subdirectory within the repo to deploy from (for monorepos). E.g., 'frontend' or 'backend'. Leave empty for single-project repos."},
             },
             "required": ["owner", "repo", "project_type"],
         },
@@ -1126,7 +1137,7 @@ async def _exec_create_miaobu_project(
         .filter(
             Project.user_id == user.id,
             Project.github_repo_id == repo_info["id"],
-            Project.root_directory == "",
+            Project.root_directory == tool_input.get("root_directory", ""),
         )
         .first()
     )
@@ -1148,7 +1159,7 @@ async def _exec_create_miaobu_project(
         default_branch=repo_info.get("default_branch", "main"),
         name=repo_info["name"],
         slug=slug,
-        root_directory="",
+        root_directory=tool_input.get("root_directory", ""),
         project_type=project_type,
         oss_path=f"projects/{slug}/",
         default_domain=f"{slug}.{settings.cdn_base_domain}",
@@ -1173,6 +1184,19 @@ async def _exec_create_miaobu_project(
     db.add(project)
     db.commit()
     db.refresh(project)
+
+    # Create Manul app on the Manul server
+    if project_type == "manul":
+        from .manul import ManulService
+        manul_service = ManulService()
+        manul_result = manul_service.create_app(slug)
+        if not manul_result["success"]:
+            db.delete(project)
+            db.commit()
+            return {"error": f"Failed to create Manul app: {manul_result.get('error')}"}
+        project.manul_app_id = manul_result["app_id"]
+        project.manul_app_name = slug
+        db.commit()
 
     # Create webhook
     webhook_error = None
