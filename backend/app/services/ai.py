@@ -36,6 +36,7 @@ You can:
 - Create new GitHub repositories and scaffold complete web projects (React, Vue, Next.js, FastAPI, Flask, Express, etc.)
 - Read and modify files in existing project repositories
 - Create Miaobu projects from repositories and trigger deployments
+- Update project settings (project type, build commands, etc.)
 - List and inspect the user's existing projects
 - Monitor deployments, read build logs, and automatically diagnose and fix build failures
 
@@ -48,6 +49,12 @@ You can:
 6. When creating a project, pick sensible defaults for build config based on the framework.
 7. Keep file contents complete — never use placeholder comments like "// rest of code here".
 8. Repository names should be lowercase with hyphens, no special characters.
+
+## Project Type Selection
+- `static`: Frontend-only apps (React, Vue, Svelte, Astro, etc.) that compile to HTML/CSS/JS. Use this for ANY project that uses `vite`, `webpack`, `next export`, or similar bundlers to produce static files. This is the most common type.
+- `node`: Node.js backend servers (Express, Fastify, NestJS, Koa, Hapi) that listen on a port. Only use this for actual server applications, NOT for frontend apps with `vite preview` or `next start`.
+- `python`: Python web servers (FastAPI, Flask, Django).
+If you created a project with the wrong type, use `update_project` to change it before the next deployment.
 
 ## Build Failure Diagnosis & Auto-Fix
 After committing code (via `commit_files`) that triggers a deployment:
@@ -188,6 +195,49 @@ TOOLS = [
                 "project_id": {
                     "type": "integer",
                     "description": "The Miaobu project ID to deploy.",
+                },
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "update_project",
+        "description": "Update a Miaobu project's settings (project type, build/install/start commands, output directory, etc.). Use this to fix misconfigured projects.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "project_type": {
+                    "type": "string",
+                    "enum": ["static", "node", "python"],
+                    "description": "Project type: static (frontend apps), node (Node.js servers), python (Python servers).",
+                },
+                "build_command": {
+                    "type": "string",
+                    "description": "Build command (e.g., 'npm run build').",
+                },
+                "install_command": {
+                    "type": "string",
+                    "description": "Install command (e.g., 'npm install').",
+                },
+                "output_directory": {
+                    "type": "string",
+                    "description": "Build output directory (e.g., 'dist').",
+                },
+                "start_command": {
+                    "type": "string",
+                    "description": "Start command for node/python projects (e.g., 'node server.js').",
+                },
+                "node_version": {
+                    "type": "string",
+                    "description": "Node.js version (e.g., '18', '20').",
+                },
+                "is_spa": {
+                    "type": "boolean",
+                    "description": "Whether the static site is a Single Page Application.",
                 },
             },
             "required": ["project_id"],
@@ -458,6 +508,48 @@ async def _exec_create_miaobu_project(
     }
 
 
+async def _exec_update_project(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    updatable_fields = [
+        "project_type", "build_command", "install_command",
+        "output_directory", "start_command", "node_version", "is_spa",
+    ]
+    updated = []
+    for field in updatable_fields:
+        if field in tool_input:
+            old_value = getattr(project, field)
+            new_value = tool_input[field]
+            setattr(project, field, new_value)
+            updated.append(f"{field}: {old_value!r} -> {new_value!r}")
+
+    if not updated:
+        return {"error": "No fields to update."}
+
+    db.commit()
+    return {
+        "project_id": project.id,
+        "updated": updated,
+        "current_settings": {
+            "project_type": project.project_type,
+            "build_command": project.build_command,
+            "install_command": project.install_command,
+            "output_directory": project.output_directory,
+            "start_command": project.start_command,
+            "node_version": project.node_version,
+            "is_spa": project.is_spa,
+        },
+    }
+
+
 async def _exec_list_project_deployments(
     tool_input: Dict[str, Any], user: User, db: Session
 ) -> Dict[str, Any]:
@@ -693,6 +785,7 @@ TOOL_EXECUTORS = {
     "commit_files": _exec_commit_files,
     "create_miaobu_project": _exec_create_miaobu_project,
     "trigger_deployment": _exec_trigger_deployment,
+    "update_project": _exec_update_project,
     "list_project_deployments": _exec_list_project_deployments,
     "get_deployment_logs": _exec_get_deployment_logs,
     "wait_for_deployment": _exec_wait_for_deployment,

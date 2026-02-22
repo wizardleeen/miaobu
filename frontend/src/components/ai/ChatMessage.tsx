@@ -26,6 +26,7 @@ const TOOL_LABELS: Record<string, string> = {
   commit_files: '提交文件',
   create_miaobu_project: '创建秒部项目',
   trigger_deployment: '触发部署',
+  update_project: '更新项目设置',
   list_project_deployments: '查看部署记录',
   get_deployment_logs: '查看构建日志',
   wait_for_deployment: '等待部署完成',
