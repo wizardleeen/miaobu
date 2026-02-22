@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..models import (
     User, Project, Deployment, DeploymentStatus,
-    ChatSession, ChatMessage,
+    ChatSession, ChatMessage, EnvironmentVariable,
 )
 from .github import GitHubService
 from .github_actions import trigger_build
@@ -49,6 +49,7 @@ You can:
 - Update project settings (project type, build commands, etc.)
 - List and inspect the user's existing projects
 - Monitor deployments, read build logs, and automatically diagnose and fix build failures
+- Manage environment variables (list, set, delete) for projects — useful for configuring API keys, database URLs, and other secrets
 
 ## Guidelines
 1. Detect the user's language from their messages and respond in the same language (default: Chinese).
@@ -306,6 +307,76 @@ TOOLS = [
                 },
             },
             "required": ["project_id"],
+        },
+    },
+    {
+        "name": "list_env_vars",
+        "description": "List environment variables for a project. Secret values are masked. Returns key, masked/plain value, is_secret flag, and environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "environment": {
+                    "type": "string",
+                    "description": "Environment name (default 'production').",
+                },
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "set_env_var",
+        "description": "Create or update an environment variable for a project. If the key already exists in the same environment, it will be updated; otherwise a new variable is created.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "key": {
+                    "type": "string",
+                    "description": "Variable name (e.g. 'DATABASE_URL', 'API_KEY').",
+                },
+                "value": {
+                    "type": "string",
+                    "description": "Variable value.",
+                },
+                "is_secret": {
+                    "type": "boolean",
+                    "description": "Whether the value should be masked in the UI (default false).",
+                },
+                "environment": {
+                    "type": "string",
+                    "description": "Environment name (default 'production').",
+                },
+            },
+            "required": ["project_id", "key", "value"],
+        },
+    },
+    {
+        "name": "delete_env_var",
+        "description": "Delete an environment variable by key from a project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "key": {
+                    "type": "string",
+                    "description": "Variable name to delete.",
+                },
+                "environment": {
+                    "type": "string",
+                    "description": "Environment name (default 'production').",
+                },
+            },
+            "required": ["project_id", "key"],
         },
     },
 ]
@@ -786,6 +857,139 @@ async def _exec_trigger_deployment(
     }
 
 
+MASK = "••••••••"
+
+
+async def _exec_list_env_vars(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    environment = tool_input.get("environment", "production")
+    env_vars = (
+        db.query(EnvironmentVariable)
+        .filter(
+            EnvironmentVariable.project_id == project.id,
+            EnvironmentVariable.environment == environment,
+        )
+        .order_by(EnvironmentVariable.key)
+        .all()
+    )
+
+    from .encryption import decrypt_value
+
+    result = []
+    for ev in env_vars:
+        if ev.is_secret:
+            value = MASK
+        else:
+            try:
+                value = decrypt_value(ev.value)
+            except Exception:
+                value = ev.value
+        result.append({
+            "key": ev.key,
+            "value": value,
+            "is_secret": ev.is_secret,
+            "environment": ev.environment,
+        })
+
+    return {"project_id": project.id, "environment": environment, "env_vars": result}
+
+
+async def _exec_set_env_var(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    from .encryption import encrypt_value
+
+    key = tool_input["key"]
+    value = tool_input["value"]
+    is_secret = tool_input.get("is_secret", False)
+    environment = tool_input.get("environment", "production")
+
+    existing = (
+        db.query(EnvironmentVariable)
+        .filter(
+            EnvironmentVariable.project_id == project.id,
+            EnvironmentVariable.key == key,
+            EnvironmentVariable.environment == environment,
+        )
+        .first()
+    )
+
+    if existing:
+        existing.value = encrypt_value(value)
+        existing.is_secret = is_secret
+        db.commit()
+        return {
+            "action": "updated",
+            "key": key,
+            "environment": environment,
+            "is_secret": is_secret,
+        }
+    else:
+        env_var = EnvironmentVariable(
+            project_id=project.id,
+            key=key,
+            value=encrypt_value(value),
+            is_secret=is_secret,
+            environment=environment,
+        )
+        db.add(env_var)
+        db.commit()
+        return {
+            "action": "created",
+            "key": key,
+            "environment": environment,
+            "is_secret": is_secret,
+        }
+
+
+async def _exec_delete_env_var(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    key = tool_input["key"]
+    environment = tool_input.get("environment", "production")
+
+    env_var = (
+        db.query(EnvironmentVariable)
+        .filter(
+            EnvironmentVariable.project_id == project.id,
+            EnvironmentVariable.key == key,
+            EnvironmentVariable.environment == environment,
+        )
+        .first()
+    )
+    if not env_var:
+        return {"error": f"Environment variable '{key}' not found in {environment}."}
+
+    db.delete(env_var)
+    db.commit()
+    return {"deleted": True, "key": key, "environment": environment}
+
+
 # Dispatch table
 TOOL_EXECUTORS = {
     "list_user_projects": _exec_list_user_projects,
@@ -800,6 +1004,9 @@ TOOL_EXECUTORS = {
     "list_project_deployments": _exec_list_project_deployments,
     "get_deployment_logs": _exec_get_deployment_logs,
     "wait_for_deployment": _exec_wait_for_deployment,
+    "list_env_vars": _exec_list_env_vars,
+    "set_env_var": _exec_set_env_var,
+    "delete_env_var": _exec_delete_env_var,
 }
 
 

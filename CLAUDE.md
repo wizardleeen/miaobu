@@ -1,5 +1,7 @@
 # Miaobu - Static, Node.js & Python Deployment Platform
 
+**IMPORTANT: Refer to `dev_guide.md` at the project root for the development workflow, deployment environments, and database credentials.**
+
 ## Project Overview
 Miaobu is a Vercel-like deployment platform that deploys GitHub repositories to Aliyun cloud infrastructure. It supports static sites (Node.js build), Node.js backend apps (Express/Fastify/NestJS/Koa/Hapi), and Python web apps (FastAPI/Flask/Django).
 

@@ -30,6 +30,9 @@ const TOOL_LABELS: Record<string, string> = {
   list_project_deployments: '查看部署记录',
   get_deployment_logs: '查看构建日志',
   wait_for_deployment: '等待部署完成',
+  list_env_vars: '查看环境变量',
+  set_env_var: '设置环境变量',
+  delete_env_var: '删除环境变量',
 }
 
 function getToolSubtitle(tool: ToolCall): string | null {
@@ -48,6 +51,11 @@ function getToolSubtitle(tool: ToolCall): string | null {
     case 'get_deployment_logs':
     case 'wait_for_deployment':
       return input.deployment_id ? `#${input.deployment_id}` : null
+    case 'list_env_vars':
+      return input.project_id ? `项目 #${input.project_id}` : null
+    case 'set_env_var':
+    case 'delete_env_var':
+      return input.key || null
     default:
       return null
   }
