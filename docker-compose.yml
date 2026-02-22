@@ -13,7 +13,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - ./backend/.env
     environment:
       - HTTP_PROXY=http://host.docker.internal:8118
       - HTTPS_PROXY=http://host.docker.internal:8118

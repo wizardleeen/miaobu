@@ -193,6 +193,11 @@ Value (JSON):
 - When pushing a fix that changes the deploy flow itself, the first deploy runs on the OLD (buggy) code. May need a second push or webhook re-delivery.
 - If a deploy fails during self-hosting, check webhook deliveries: `gh api repos/wizardleeen/miaobu/hooks/596729288/deliveries`
 
+## Workflow Rules
+- **Never merge PRs yourself.** Only create PRs — leave merging to the maintainer.
+- **Pushing to `main`**: The `main` branch has branch protection — direct pushes are rejected. Create a feature branch, push it, and open a PR via `gh pr create`.
+- **Pushing to `staging`**: Use `git push origin main:staging` (or `<branch>:staging`) — no branch protection on staging.
+
 ## Deployment & Operations
 
 ### Environments
@@ -201,10 +206,11 @@ Value (JSON):
 - Both environments are deployed on Miaobu's own platform (self-hosting). Staging is enabled via the project's `staging_enabled` flag.
 
 ### Databases
-- Both databases are on the local server at port 5432.
+- Both databases are on the local server at port 5432. Password is in `backend/.env` (`DATABASE_URL`).
 - **Production DB**: `miaobu` (used by the production backend)
 - **Staging DB**: `miaobu_staging` (used by the staging backend)
 - These are separate databases — users, tokens, projects, and deployments are NOT shared between them.
+- To query: `PGPASSWORD='...' psql -h localhost -U miaobu -d miaobu` (or `-d miaobu_staging`)
 
 ### Code Deployment
 Code is deployed via `git push` to the `main` branch. Docker containers are **no longer used** for deployment. A push to main triggers the hosting platform to redeploy backend and frontend automatically.
@@ -212,9 +218,11 @@ Code is deployed via `git push` to the `main` branch. Docker containers are **no
 ### GitHub Actions Build Pipeline
 - Builds are triggered via `repository_dispatch` (type `miaobu-build`) when a user deploys their project.
 - Workflow: `.github/workflows/build.yml` — has `build-static`, `build-python`, and `build-node` jobs.
+- **`repository_dispatch` always uses the workflow file from the default branch (`main`)**. Changes to `build.yml` on other branches (e.g., `staging`) have NO effect on builds.
 - All API calls (clone-token, env-vars, callbacks) have **retry logic** (5 attempts, 10s apart) to survive backend redeploys. Only retries on 5xx/connection errors; fails immediately on 4xx.
 - Callback helper: `.github/scripts/callback.sh` — sends signed POST to the build-callback endpoint with retry.
 - **Key issue**: when a git push redeploys the backend, any concurrent GHA builds will hit the API during the restart window. The retry logic handles this.
+- **Build output capture**: All build steps (install, build, verify/package, prune) pipe output through `tee -a /tmp/build_output.log`. On failure, the callback includes the last 6000 chars of actual build output (compilation errors, missing dependencies, etc.) instead of a generic "Build failed" message. This is critical for the AI auto-fix feature to diagnose errors.
 
 ### ESA cache purge
 Done automatically during deploy via `esa_service.purge_host_cache([hostname])`.
@@ -263,15 +271,29 @@ When deleting backend projects: FC custom domain + DNS CNAME must be cleaned up 
 
 ## AI Chat Feature
 - **Backend**: `backend/app/services/ai.py` — Claude tool-use loop with SSE streaming
+- **Frontend**: `frontend/src/components/ai/ChatMessage.tsx` — tool call cards with Chinese labels (`TOOL_LABELS`) and contextual subtitles (`getToolSubtitle()`)
 - **Models**: `ChatSession`, `ChatMessage` in `backend/app/models/__init__.py`
 - **Endpoint**: SSE streaming via `prepare_chat()` + `stream_chat()` generator
 - **Anthropic client**: Uses explicit `httpx.Client(proxy=settings.http_proxy, timeout=600.0)` — the proxy is REQUIRED for FC to reach external APIs. Do NOT remove the explicit httpx client.
 - **Keepalive**: Queue-based approach sends SSE comments every 5s to prevent proxy idle-timeout
-- **Tools**: list_user_projects, get_project_details, list_repo_files, read_file, create_repository, commit_files, create_miaobu_project, trigger_deployment
-- **Max tool rounds**: 15, uses `claude-sonnet-4-20250514` model
+- **Tools**: list_user_projects, get_project_details, list_repo_files, read_file, create_repository, commit_files, create_miaobu_project, trigger_deployment, update_project, list_project_deployments, get_deployment_logs, wait_for_deployment
+- **Max tool rounds**: 25 (`MAX_TOOL_ROUNDS`), uses `claude-sonnet-4-20250514` model, `max_tokens=32768`
+- **System prompt** includes: platform description, project type selection guide (static vs node vs python), build failure auto-fix instructions, web-only deployment guideline
+
+### AI Chat Build Auto-Fix
+After the AI commits code via `commit_files` (which auto-triggers deployment via webhook):
+1. AI calls `wait_for_deployment` (polls DB every 10s, up to 5 min) to monitor the build
+2. If deployed → reports success with live URL
+3. If failed → reads build logs from the deployment, examines source files, commits a fix, waits again
+4. Repeats up to 3 attempts before explaining the issue to the user
+- **Key**: `commit_files` auto-triggers deployment via webhook — AI does NOT call `trigger_deployment` afterward
+- Build logs now include actual compilation errors (see GHA Build Pipeline section)
 
 ### AI Chat Gotchas
 - The `_sse_event()` helper function formats all SSE events. Without it, streams return empty 200 responses.
 - The Anthropic SDK does NOT reliably auto-read `HTTP_PROXY` from env vars in FC. Always use explicit `httpx.Client(proxy=...)`.
 - When modifying `ai.py`, change ONLY what's needed. Accidental deletion of helper functions (like `_sse_event`) breaks the entire chat silently.
+- **max_tokens truncation**: When `stop_reason == "max_tokens"`, the code tells Claude to retry with smaller batches (e.g., fewer files per commit). Without this, the loop silently breaks. The handler reconstructs partial tool_use blocks and sends truncation errors as tool_results.
+- **Error-resilient message save**: The `except` block in the producer saves accumulated text/tool_calls to DB even on error, preventing context loss when the user sends follow-up messages. Without this, the assistant message is lost entirely.
+- **Project type misselection**: The system prompt includes a project type guide. Frontend apps (React, Vue, Vite) must be `static`, not `node`. If wrong, use `update_project` to fix before redeploying.
 
