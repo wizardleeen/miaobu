@@ -1758,14 +1758,25 @@ async def stream_chat(
 
     user_ctx = _UserCtx(ctx["user_id"], ctx["github_access_token"], ctx["github_username"])
 
-    # Configure Anthropic client with proxy if set
-    client_kwargs: Dict[str, Any] = {"api_key": settings.anthropic_api_key}
-    if settings.http_proxy:
+    # Configure client based on provider
+    if settings.ai_chat_provider == "minimax":
+        client_kwargs: Dict[str, Any] = {
+            "api_key": settings.minimax_api_key,
+            "base_url": settings.minimax_base_url,
+        }
+        # No proxy for MiniMax China endpoint
         import httpx as _httpx
-        client_kwargs["http_client"] = _httpx.Client(
-            proxy=settings.http_proxy,
-            timeout=600.0,
-        )
+        client_kwargs["http_client"] = _httpx.Client(timeout=600.0)
+        model_name = settings.minimax_model
+    else:
+        client_kwargs = {"api_key": settings.anthropic_api_key}
+        if settings.http_proxy:
+            import httpx as _httpx
+            client_kwargs["http_client"] = _httpx.Client(
+                proxy=settings.http_proxy,
+                timeout=600.0,
+            )
+        model_name = SONNET_MODEL
     client = anthropic.Anthropic(**client_kwargs)
 
     accumulated_text = ""
@@ -1790,7 +1801,7 @@ async def stream_chat(
             await queue.put(_sse_event("stream_start", {}))
 
             for round_num in range(MAX_TOOL_ROUNDS):
-                model = SONNET_MODEL
+                model = model_name
 
                 response = await asyncio.to_thread(
                     client.messages.create,
