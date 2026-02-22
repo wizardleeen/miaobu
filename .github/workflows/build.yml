@@ -526,6 +526,162 @@ jobs:
           chmod +x .github/scripts/callback.sh
           .github/scripts/callback.sh "$BODY"
 
+  build-manul:
+    if: github.event.client_payload.project_type == 'manul'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout miaobu (for scripts)
+        uses: actions/checkout@v4
+
+      - name: Parse build config
+        id: cfg
+        run: |
+          echo '${{ github.event.client_payload.build_config }}' | python3 -c "
+          import json, sys, os
+          cfg = json.load(sys.stdin)
+          out = os.environ['GITHUB_OUTPUT']
+          with open(out, 'a') as f:
+              for k, v in cfg.items():
+                  f.write(f'{k}={v}\n')
+          "
+
+      - name: Fetch clone token
+        id: clone
+        run: |
+          URL_PATH="/api/v1/internal/deployments/${{ github.event.client_payload.deployment_id }}/clone-token"
+          SIG="sha256=$(echo -n "$URL_PATH" | openssl dgst -sha256 -hmac "$MIAOBU_CALLBACK_SECRET" | awk '{print $NF}')"
+
+          for attempt in 1 2 3 4 5; do
+            HTTP_CODE=$(curl -s -o /tmp/clone_resp.json -w "%{http_code}" --max-time 30 \
+              "${MIAOBU_API_URL}${URL_PATH}" \
+              -H "X-Miaobu-Signature: ${SIG}") || HTTP_CODE="000"
+
+            if [ "$HTTP_CODE" = "200" ]; then break; fi
+
+            if [ "$HTTP_CODE" -ge 400 ] 2>/dev/null && [ "$HTTP_CODE" -lt 500 ] 2>/dev/null; then
+              echo "::error::Fetch clone token failed: HTTP $HTTP_CODE (client error)"
+              cat /tmp/clone_resp.json 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "::warning::Fetch clone token attempt $attempt failed (HTTP $HTTP_CODE), retrying in 10s..."
+            sleep 10
+          done
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Fetch clone token failed after 5 attempts (last HTTP $HTTP_CODE)"
+            cat /tmp/clone_resp.json 2>/dev/null || true
+            exit 1
+          fi
+
+          TOKEN=$(cat /tmp/clone_resp.json | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          echo "::add-mask::${TOKEN}"
+          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout user repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.client_payload.repo_name }}
+          ref: ${{ github.event.client_payload.commit_sha }}
+          token: ${{ steps.clone.outputs.token }}
+          path: user-repo
+
+      - name: Notify building
+        run: |
+          chmod +x .github/scripts/callback.sh
+          BODY='{"deployment_id":${{ github.event.client_payload.deployment_id }},"status":"building","build_logs":"GitHub Actions Manul build started\nRunner: ubuntu-latest\nRepo: ${{ github.event.client_payload.repo_name }}\nBranch: ${{ github.event.client_payload.branch }}\nCommit: ${{ github.event.client_payload.commit_sha }}\n"}'
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Install Manul SDK
+        run: |
+          echo "=== Installing Manul SDK ===" | tee -a /tmp/build_output.log
+          curl -sSf https://manul.build/install.sh | sh 2>&1 | tee -a /tmp/build_output.log
+          echo "$HOME/.manul/bin" >> "$GITHUB_PATH"
+          echo "=== Manul SDK installed ==="
+
+      - name: Build
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
+        run: |
+          echo "=== Running manul build ==="
+          START=$(date +%s)
+          manul build 2>&1 | tee -a /tmp/build_output.log
+          END=$(date +%s)
+          echo "build_seconds=$((END - START))" >> "$GITHUB_ENV"
+          echo "=== Build complete ($((END - START))s) ==="
+
+      - name: Verify output
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
+        run: |
+          if [ ! -f "target/target.mva" ]; then
+            echo "ERROR: target/target.mva not found" | tee -a /tmp/build_output.log
+            ls -la target/ 2>/dev/null | tee -a /tmp/build_output.log || echo "target/ directory does not exist" | tee -a /tmp/build_output.log
+            exit 1
+          fi
+          SIZE=$(du -h "target/target.mva" | cut -f1)
+          echo "Built artifact: target/target.mva (${SIZE})"
+
+      - name: Notify uploading
+        run: |
+          BODY="{\"deployment_id\":${{ github.event.client_payload.deployment_id }},\"status\":\"uploading\",\"build_logs\":\"Build completed in ${build_seconds}s\\nUploading .mva to OSS...\\n\"}"
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Install oss2
+        run: pip install oss2
+
+      - name: Upload to OSS
+        working-directory: user-repo/${{ steps.cfg.outputs.root_directory }}
+        env:
+          FC_OSS_BUCKET: ${{ env.ALIYUN_FC_OSS_BUCKET }}
+          FC_OSS_ENDPOINT: https://oss-cn-qingdao.aliyuncs.com
+        run: |
+          OSS_KEY="projects/${{ github.event.client_payload.project_slug }}/${{ github.event.client_payload.deployment_id }}/target.mva"
+          python3 -c "
+          import oss2, os
+          auth = oss2.Auth(os.environ['ALIYUN_AK_ID'], os.environ['ALIYUN_AK_SECRET'])
+          bucket = oss2.Bucket(auth, os.environ['FC_OSS_ENDPOINT'], os.environ['FC_OSS_BUCKET'])
+          bucket.put_object_from_file('${OSS_KEY}', 'target/target.mva')
+          print(f'Uploaded to {os.environ[\"FC_OSS_BUCKET\"]}/${OSS_KEY}')
+          "
+
+      - name: Notify uploaded
+        if: success()
+        run: |
+          OSS_KEY="projects/${{ github.event.client_payload.project_slug }}/${{ github.event.client_payload.deployment_id }}/target.mva"
+          BODY=$(python3 -c "
+          import json
+          print(json.dumps({
+            'deployment_id': ${{ github.event.client_payload.deployment_id }},
+            'status': 'uploaded',
+            'build_time_seconds': ${build_seconds},
+            'build_logs': 'OSS upload complete\n',
+            'oss_key': '${OSS_KEY}'
+          }))
+          ")
+          .github/scripts/callback.sh "$BODY"
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          BODY=$(python3 -c "
+          import json, os
+          build_log = ''
+          if os.path.exists('/tmp/build_output.log'):
+              with open('/tmp/build_output.log', 'r', errors='replace') as f:
+                  build_log = f.read()
+              if len(build_log) > 6000:
+                  build_log = '...(truncated)...\n' + build_log[-6000:]
+          run_url = 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+          print(json.dumps({
+            'deployment_id': ${{ github.event.client_payload.deployment_id }},
+            'status': 'failed',
+            'error_message': 'GitHub Actions Manul build failed — check workflow logs',
+            'build_logs': build_log + '\nSee full logs: ' + run_url + '\n'
+          }))
+          ")
+          chmod +x .github/scripts/callback.sh
+          .github/scripts/callback.sh "$BODY"
+
   build-node:
     if: github.event.client_payload.project_type == 'node'
     runs-on: ubuntu-latest

@@ -11,6 +11,7 @@ class ProjectType(str, Enum):
     STATIC = "static"
     PYTHON = "python"
     NODE = "node"
+    MANUL = "manul"
 
 
 class DeploymentStatus(str, Enum):
@@ -107,6 +108,8 @@ class ProjectResponse(ProjectBase):
     webhook_id: Optional[int] = None
     fc_function_name: Optional[str] = None
     fc_endpoint_url: Optional[str] = None
+    manul_app_id: Optional[int] = None
+    manul_app_name: Optional[str] = None
     active_deployment_id: Optional[int] = None
     staging_enabled: bool = False
     staging_deployment_id: Optional[int] = None

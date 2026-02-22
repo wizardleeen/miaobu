@@ -156,10 +156,25 @@ export default function ProjectDetailPage() {
       <div className="grid md:grid-cols-2 gap-4 mb-8">
         <div className="card p-5">
           <h2 className="text-sm font-semibold text-[--text-primary] mb-4">
-            {project.project_type === 'python' || project.project_type === 'node' ? '部署配置' : '构建配置'}
+            {project.project_type === 'python' || project.project_type === 'node' || project.project_type === 'manul' ? '部署配置' : '构建配置'}
           </h2>
           <div className="space-y-3">
-            {project.project_type === 'python' ? (
+            {project.project_type === 'manul' ? (
+              <>
+                <div>
+                  <label className="text-xs text-[--text-tertiary]">项目类型</label>
+                  <p className="text-sm mt-0.5">
+                    <span className="badge-info">Manul 后端</span>
+                  </p>
+                </div>
+                {project.manul_app_name && (
+                  <div>
+                    <label className="text-xs text-[--text-tertiary]">应用名称</label>
+                    <p className="font-mono text-sm bg-[--bg-tertiary] p-2 rounded-lg mt-0.5">{project.manul_app_name}</p>
+                  </div>
+                )}
+              </>
+            ) : project.project_type === 'python' ? (
               <>
                 <div>
                   <label className="text-xs text-[--text-tertiary]">项目类型</label>

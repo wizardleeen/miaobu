@@ -128,7 +128,7 @@ async def build_callback(
         db.commit()
 
         # Run deploy inline — FC updates are ~300ms, total <2s
-        from ...services.deploy import deploy_static, deploy_python, deploy_node
+        from ...services.deploy import deploy_static, deploy_python, deploy_node, deploy_manul
 
         project = deployment.project
         project_type = project.project_type or "static"
@@ -137,6 +137,8 @@ async def build_callback(
             result = deploy_python(deployment.id, payload.oss_key, db)
         elif project_type == "node":
             result = deploy_node(deployment.id, payload.oss_key, db)
+        elif project_type == "manul":
+            result = deploy_manul(deployment.id, payload.oss_key, db)
         else:
             result = deploy_static(deployment.id, db)
 

@@ -31,6 +31,8 @@ def _project_dict(p: Project) -> dict:
         "node_version": p.node_version,
         "python_version": p.python_version,
         "start_command": p.start_command,
+        "manul_app_id": p.manul_app_id,
+        "manul_app_name": p.manul_app_name,
         "default_domain": p.default_domain,
         "active_deployment_id": p.active_deployment_id,
         "created_at": p.created_at.isoformat(),
@@ -144,6 +146,14 @@ async def delete_project(
 
     settings = get_settings()
 
+    # Delete Manul app from the Manul server
+    if project.project_type == "manul" and project.manul_app_id:
+        try:
+            from ....services.manul import ManulService
+            ManulService().delete_app(project.manul_app_id)
+        except Exception:
+            pass
+
     # Best-effort cloud resource cleanup
     try:
         esa_service = ESAService()
@@ -161,6 +171,17 @@ async def delete_project(
         oss_service.delete_directory(f"projects/{project.slug}/")
     except Exception:
         pass
+
+    # Delete FC packages from Qingdao bucket for Manul projects
+    if project.project_type == "manul":
+        try:
+            fc_oss = OSSService(
+                bucket_name=settings.aliyun_fc_oss_bucket,
+                endpoint=settings.aliyun_fc_oss_endpoint,
+            )
+            fc_oss.delete_directory(f"projects/{project.slug}/")
+        except Exception:
+            pass
 
     if project.project_type in ("python", "node"):
         from ....services.fc import FCService
