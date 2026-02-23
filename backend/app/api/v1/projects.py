@@ -131,6 +131,17 @@ async def create_project(
     db.commit()
     db.refresh(project)
 
+    # Set up ESA site DNS record + Aliyun DNS CNAME for static subdomains
+    if project_data.project_type == "static":
+        try:
+            esa_service = ESAService()
+            subdomain = f"{slug}.{settings.cdn_base_domain}"
+            result = esa_service.setup_static_subdomain(subdomain)
+            if not result.get('success'):
+                logger.warning(f"Static subdomain setup failed for {subdomain}: {result.get('error') or result.get('errors')}")
+        except Exception as e:
+            logger.warning(f"Static subdomain setup failed for {slug}: {e}")
+
     return project
 
 
@@ -358,6 +369,14 @@ async def update_project(
     if staging_enabled_changed and new_staging_enabled:
         project.staging_domain = f"{project.slug}-staging.{settings.cdn_base_domain}"
 
+        # Set up ESA DNS for staging subdomain (static projects only)
+        if project.project_type == "static":
+            try:
+                staging_sub = f"{project.slug}-staging.{settings.cdn_base_domain}"
+                ESAService().setup_static_subdomain(staging_sub)
+            except Exception as e:
+                logger.warning(f"Staging subdomain setup failed for {project.slug}: {e}")
+
     # When staging is disabled, clean up staging resources
     if staging_enabled_changed and not new_staging_enabled:
         _cleanup_staging(project, db)
@@ -383,6 +402,13 @@ def _cleanup_staging(project: Project, db: Session) -> None:
         esa_service.delete_edge_kv(staging_domain)
     except Exception as e:
         logger.warning(f"Failed to delete staging Edge KV for {staging_domain}: {e}")
+
+    # Clean up static subdomain DNS (ESA site record + Aliyun CNAME)
+    if project.project_type == "static":
+        try:
+            esa_service.cleanup_static_subdomain(staging_domain)
+        except Exception as e:
+            logger.warning(f"Failed to clean up staging static subdomain for {staging_domain}: {e}")
 
     # Delete staging FC function if exists
     if project.staging_fc_function_name:
@@ -418,6 +444,21 @@ async def delete_project(
 
     settings = get_settings()
     esa_service = ESAService()
+
+    # Clean up static subdomain DNS (ESA site record + Aliyun CNAME)
+    if project.project_type == "static":
+        try:
+            subdomain = f"{project.slug}.{settings.cdn_base_domain}"
+            esa_service.cleanup_static_subdomain(subdomain)
+        except Exception as e:
+            logger.warning(f"Failed to clean up static subdomain DNS for {project.slug}: {e}")
+
+        if project.staging_enabled:
+            try:
+                staging_sub = f"{project.slug}-staging.{settings.cdn_base_domain}"
+                esa_service.cleanup_static_subdomain(staging_sub)
+            except Exception as e:
+                logger.warning(f"Failed to clean up staging static subdomain DNS for {project.slug}: {e}")
 
     # Clean up custom domain ESA resources (SaaS managers + Edge KV)
     custom_domains = (

@@ -18,4 +18,5 @@ cryptography==42.0.0
 acme==2.7.4
 josepy==1.14.0
 alibabacloud-fc20230330>=4.6.0
+alibabacloud-esa20240910>=2.38.0
 anthropic>=0.49.0

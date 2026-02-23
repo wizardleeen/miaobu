@@ -5,16 +5,29 @@ Handles:
 - SaaS manager creation/deletion for custom domains
 - Edge KV store operations for domain-to-path routing
 - SSL certificate management (automatic via ESA)
+- Site DNS record management for static subdomains
 """
 import json
+import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from aliyunsdkcore.client import AcsClient
 from aliyunsdkcore.request import CommonRequest
+from alibabacloud_esa20240910.client import Client as ESASDKClient
+from alibabacloud_esa20240910.models import (
+    CreateRecordRequest,
+    CreateRecordRequestAuthConf,
+    CreateRecordRequestData,
+    UpdateRecordRequest,
+    UpdateRecordRequestAuthConf,
+    UpdateRecordRequestData,
+)
+from alibabacloud_tea_openapi.models import Config as OpenApiConfig
 
 from ..config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 class ESAService:
@@ -25,6 +38,7 @@ class ESAService:
     - SaaS manager for custom domains
     - Edge KV store for domain routing
     - Automatic SSL provisioning
+    - Site DNS records for static subdomains
     """
 
     def __init__(self):
@@ -35,11 +49,20 @@ class ESAService:
             settings.aliyun_region
         )
 
+        # Typed SDK client for APIs requiring structured params (e.g. CreateRecord)
+        sdk_config = OpenApiConfig(
+            access_key_id=settings.aliyun_access_key_id,
+            access_key_secret=settings.aliyun_access_key_secret,
+            endpoint=f"esa.{settings.aliyun_region}.aliyuncs.com",
+        )
+        self.sdk_client = ESASDKClient(sdk_config)
+
         self.site_id = settings.aliyun_esa_site_id
         self.site_name = settings.aliyun_esa_site_name
         self.cname_target = settings.aliyun_esa_cname_target
         self.edge_kv_namespace_id = settings.aliyun_esa_edge_kv_namespace_id
         self.edge_kv_namespace = settings.aliyun_esa_edge_kv_namespace
+        self.oss_origin = f"{settings.aliyun_oss_bucket}.{settings.aliyun_oss_endpoint}"
 
     def _make_request(
         self,
@@ -508,6 +531,205 @@ class ESAService:
             }
 
         return result
+
+    # ==================== Site DNS Record Operations ====================
+
+    def create_site_dns_record(self, record_name: str) -> Dict[str, Any]:
+        """
+        Create a proxied CNAME record in the ESA site for a static subdomain.
+
+        Uses the typed SDK client because CreateRecord requires structured
+        ``Data`` parameter.
+
+        Args:
+            record_name: Full hostname (e.g. "myapp.metavm.tech")
+
+        Returns:
+            Result with record_id if successful
+        """
+        import os
+
+        if not self.site_id:
+            return {'success': False, 'error': 'ESA site ID not configured'}
+
+        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+        saved_proxies = {k: os.environ.pop(k, None) for k in proxy_vars}
+
+        try:
+            request = CreateRecordRequest(
+                site_id=int(self.site_id),
+                record_name=record_name,
+                type="CNAME",
+                source_type="OSS",
+                data=CreateRecordRequestData(value=self.oss_origin),
+                proxied=True,
+                biz_name="web",
+                host_policy="follow_origin_domain",
+                auth_conf=CreateRecordRequestAuthConf(
+                    auth_type="private_same_account",
+                ),
+                ttl=600,
+            )
+            response = self.sdk_client.create_record(request)
+            record_id = response.body.record_id
+
+            logger.info(f"ESA DNS record created: {record_name} (id={record_id})")
+            return {
+                'success': True,
+                'record_id': str(record_id),
+            }
+
+        except Exception as e:
+            error_msg = str(e)
+            if 'RecordAlreadyExist' in error_msg or 'SameNameRecordExceedLimit' in error_msg:
+                logger.info(f"ESA DNS record already exists: {record_name}")
+                return {'success': True, 'already_exists': True}
+            logger.error(f"Failed to create ESA DNS record for {record_name}: {error_msg}")
+            return {'success': False, 'error': error_msg}
+
+        finally:
+            for key, value in saved_proxies.items():
+                if value is not None:
+                    os.environ[key] = value
+
+    def delete_site_dns_record(self, record_id: str) -> Dict[str, Any]:
+        """
+        Delete an ESA site DNS record.
+
+        Args:
+            record_id: ESA record ID
+
+        Returns:
+            Deletion result
+        """
+        params = {
+            'SiteId': self.site_id,
+            'RecordId': record_id,
+        }
+        result = self._make_request('DeleteRecord', params)
+        if result['success']:
+            logger.info(f"ESA DNS record deleted: {record_id}")
+        return result
+
+    def find_site_dns_record(self, record_name: str) -> Dict[str, Any]:
+        """
+        Find an ESA site DNS record by name.
+
+        Args:
+            record_name: Full hostname (e.g. "myapp.metavm.tech")
+
+        Returns:
+            Result with records list (record_id, record_cname, type, value)
+        """
+        params = {
+            'SiteId': self.site_id,
+            'RecordName': record_name,
+        }
+        result = self._make_request('ListRecords', params, method='GET')
+        if not result['success']:
+            return result
+
+        raw_records = result['data'].get('Records', [])
+        records = []
+        for r in raw_records:
+            records.append({
+                'record_id': str(r.get('RecordId', '')),
+                'record_cname': r.get('RecordCname', ''),
+                'record_name': r.get('RecordName', ''),
+                'type': r.get('Type', ''),
+                'value': r.get('Data', {}).get('Value', ''),
+            })
+
+        return {'success': True, 'records': records}
+
+    def setup_static_subdomain(self, subdomain: str) -> Dict[str, Any]:
+        """
+        Set up ESA site DNS record + Aliyun DNS CNAME for a static subdomain.
+
+        Steps:
+        1. Create ESA site DNS record (proxied CNAME) → get record_id
+        2. Look up the record to get ESA-assigned record_cname
+        3. Create Aliyun DNS CNAME pointing subdomain → record_cname
+
+        Args:
+            subdomain: Full subdomain (e.g. "myapp.metavm.tech")
+
+        Returns:
+            Success/error dict
+        """
+        from .alidns import AliDNSService
+
+        # Step 1: Create ESA site DNS record
+        create_result = self.create_site_dns_record(subdomain)
+        if not create_result['success']:
+            return create_result
+
+        # Step 2: Look up the record to get record_cname
+        find_result = self.find_site_dns_record(subdomain)
+        if not find_result['success']:
+            return {'success': False, 'error': f'Created record but failed to look it up: {find_result.get("error")}'}
+
+        records = find_result.get('records', [])
+        if not records:
+            return {'success': False, 'error': f'Created record but ListRecords returned empty for {subdomain}'}
+
+        record_cname = records[0].get('record_cname', '')
+        if not record_cname:
+            return {'success': False, 'error': f'ESA record for {subdomain} has no record_cname assigned'}
+
+        # Step 3: Create Aliyun DNS CNAME → record_cname
+        dns_service = AliDNSService()
+        dns_result = dns_service.add_cname_record(subdomain, record_cname)
+        if dns_result.get('success'):
+            logger.info(f"Static subdomain setup complete: {subdomain} → {record_cname}")
+            return {'success': True, 'subdomain': subdomain, 'record_cname': record_cname}
+        else:
+            logger.warning(f"ESA record created but DNS CNAME failed for {subdomain}: {dns_result.get('error')}")
+            return {'success': False, 'error': f'DNS CNAME failed: {dns_result.get("error")}'}
+
+    def cleanup_static_subdomain(self, subdomain: str) -> Dict[str, Any]:
+        """
+        Remove ESA site DNS record + Aliyun DNS CNAME for a static subdomain.
+
+        Steps:
+        1. Find ESA site DNS record → get record_id
+        2. Delete ESA site DNS record
+        3. Delete Aliyun DNS CNAME
+
+        Args:
+            subdomain: Full subdomain (e.g. "myapp.metavm.tech")
+
+        Returns:
+            Success/error dict
+        """
+        from .alidns import AliDNSService
+
+        errors = []
+
+        # Step 1 & 2: Find and delete ESA site DNS record
+        find_result = self.find_site_dns_record(subdomain)
+        if find_result.get('success'):
+            for record in find_result.get('records', []):
+                record_id = record.get('record_id')
+                if record_id:
+                    del_result = self.delete_site_dns_record(record_id)
+                    if not del_result.get('success'):
+                        errors.append(f"ESA record delete: {del_result.get('error')}")
+        else:
+            errors.append(f"ESA record lookup: {find_result.get('error')}")
+
+        # Step 3: Delete Aliyun DNS CNAME
+        dns_service = AliDNSService()
+        dns_result = dns_service.delete_cname_record(subdomain)
+        if not dns_result.get('success'):
+            errors.append(f"DNS CNAME delete: {dns_result.get('error')}")
+
+        if errors:
+            logger.warning(f"Partial cleanup for {subdomain}: {'; '.join(errors)}")
+            return {'success': False, 'errors': errors}
+
+        logger.info(f"Static subdomain cleaned up: {subdomain}")
+        return {'success': True, 'subdomain': subdomain}
 
     # ==================== High-Level Domain Management ====================
 

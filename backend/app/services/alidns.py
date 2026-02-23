@@ -6,6 +6,7 @@ from aliyunsdkalidns.request.v20150109 import (
     UpdateDomainRecordRequest
 )
 from typing import Dict, Any, Optional, List
+import json
 import time
 
 from ..config import get_settings
@@ -85,7 +86,7 @@ class AliDNSService:
             request.set_TTL(ttl)
 
             response = self.client.do_action_with_exception(request)
-            result = eval(response.decode('utf-8'))
+            result = json.loads(response.decode('utf-8'))
 
             return {
                 'success': True,
@@ -118,7 +119,7 @@ class AliDNSService:
             request.set_RecordId(record_id)
 
             response = self.client.do_action_with_exception(request)
-            result = eval(response.decode('utf-8'))
+            result = json.loads(response.decode('utf-8'))
 
             return {
                 'success': True,
@@ -158,7 +159,7 @@ class AliDNSService:
             request.set_TypeKeyWord("TXT")
 
             response = self.client.do_action_with_exception(request)
-            result = eval(response.decode('utf-8'))
+            result = json.loads(response.decode('utf-8'))
 
             records = result.get('DomainRecords', {}).get('Record', [])
 
@@ -263,7 +264,7 @@ class AliDNSService:
             request.set_TTL(ttl)
 
             response = self.client.do_action_with_exception(request)
-            result = eval(response.decode('utf-8'))
+            result = json.loads(response.decode('utf-8'))
 
             return {
                 'success': True,
@@ -295,7 +296,7 @@ class AliDNSService:
             desc_req.set_TypeKeyWord("CNAME")
 
             response = self.client.do_action_with_exception(desc_req)
-            result = eval(response.decode('utf-8'))
+            result = json.loads(response.decode('utf-8'))
             records = result.get('DomainRecords', {}).get('Record', [])
 
             # Match exact RR (keyword search can be partial)
@@ -323,6 +324,14 @@ class AliDNSService:
                 'message': 'CNAME record updated (upsert)',
             }
         except Exception as ue:
+            # Update to same value triggers DomainRecordDuplicate — treat as success
+            if 'DomainRecordDuplicate' in str(ue):
+                return {
+                    'success': True,
+                    'domain': f'{rr}.{root_domain}',
+                    'target': target,
+                    'message': 'CNAME record already has correct value',
+                }
             return {
                 'success': False,
                 'error': str(ue),
@@ -352,7 +361,7 @@ class AliDNSService:
             desc_req.set_TypeKeyWord("CNAME")
 
             response = self.client.do_action_with_exception(desc_req)
-            result = eval(response.decode('utf-8'))
+            result = json.loads(response.decode('utf-8'))
             records = result.get('DomainRecords', {}).get('Record', [])
 
             record = next((r for r in records if r.get('RR') == rr), None)
@@ -403,7 +412,7 @@ class AliDNSService:
                 request.set_TypeKeyWord(record_type)
 
             response = self.client.do_action_with_exception(request)
-            result = eval(response.decode('utf-8'))
+            result = json.loads(response.decode('utf-8'))
 
             records = result.get('DomainRecords', {}).get('Record', [])
 
