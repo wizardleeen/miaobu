@@ -3,11 +3,14 @@ Custom Domains API with ESA (Edge Security Acceleration) support.
 
 This replaces the legacy CDN-based custom domain management.
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from ...database import get_db
 from ...models import User, Project, CustomDomain, Deployment, DeploymentStatus, SSLStatus
@@ -164,33 +167,36 @@ async def verify_custom_domain(
         }
 
     # Step 1b: Verify CNAME record points to correct target
-    cname_target = domain.cname_target or settings.aliyun_esa_cname_target
-    cname_verification = DNSService.verify_cname_record(
-        domain.domain,
-        cname_target
-    )
+    # Skip for platform subdomains — we control the DNS and will create records automatically
+    is_base_subdomain = domain.domain.endswith(f'.{settings.cdn_base_domain}') or domain.domain == settings.cdn_base_domain
+    if not is_base_subdomain:
+        cname_target = domain.cname_target or settings.aliyun_esa_cname_target
+        cname_verification = DNSService.verify_cname_record(
+            domain.domain,
+            cname_target
+        )
 
-    if not cname_verification.get("verified"):
-        # CNAME not configured yet - provide instructions
-        return {
-            "success": False,
-            "verified": False,
-            "message": "Domain ownership verified, but CNAME record not configured correctly.",
-            "dns_check": {
-                "txt_record": txt_verification,
-                "cname_record": cname_verification
-            },
-            "instructions": {
-                "step1": "✓ TXT record verified",
-                "step2": f"Add CNAME record to your DNS provider",
-                "record_name": domain.domain,
-                "record_type": "CNAME",
-                "record_value": cname_target,
-                "step3": "Wait 5-10 minutes for DNS propagation",
-                "step4": "Click 'Verify Domain' again",
-                "note": cname_verification.get("message", "")
+        if not cname_verification.get("verified"):
+            # CNAME not configured yet - provide instructions
+            return {
+                "success": False,
+                "verified": False,
+                "message": "Domain ownership verified, but CNAME record not configured correctly.",
+                "dns_check": {
+                    "txt_record": txt_verification,
+                    "cname_record": cname_verification
+                },
+                "instructions": {
+                    "step1": "✓ TXT record verified",
+                    "step2": f"Add CNAME record to your DNS provider",
+                    "record_name": domain.domain,
+                    "record_type": "CNAME",
+                    "record_value": cname_target,
+                    "step3": "Wait 5-10 minutes for DNS propagation",
+                    "step4": "Click 'Verify Domain' again",
+                    "note": cname_verification.get("message", "")
+                }
             }
-        }
 
     # Step 2: Get latest successful deployment
     latest_deployment = db.query(Deployment).filter(
@@ -247,9 +253,20 @@ async def verify_custom_domain(
             if status_result.get('icp_required'):
                 icp_required = True
 
-    # Step 5: Update database (DNS ownership confirmed, ESA resources created)
-    is_base_subdomain = domain.domain.endswith(f'.{settings.cdn_base_domain}') or domain.domain == settings.cdn_base_domain
+    # Step 4b: For platform subdomain custom domains on static projects,
+    # create explicit ESA DNS record + Aliyun DNS CNAME so the wildcard is not needed.
+    if is_base_subdomain and project.project_type == "static":
+        try:
+            subdomain_result = esa_service.setup_static_subdomain(domain.domain)
+            if not subdomain_result.get('success'):
+                logger.warning(
+                    f"Static subdomain setup for custom domain {domain.domain} failed: "
+                    f"{subdomain_result.get('error') or subdomain_result.get('errors')}"
+                )
+        except Exception as e:
+            logger.warning(f"Static subdomain setup for custom domain {domain.domain} failed: {e}")
 
+    # Step 5: Update database (DNS ownership confirmed, ESA resources created)
     domain.is_verified = True
     domain.verified_at = datetime.now(timezone.utc)
     domain.esa_saas_id = provision_result.get('custom_hostname_id')  # Store custom hostname ID
@@ -664,18 +681,27 @@ async def delete_custom_domain(
         raise ForbiddenException("You don't have access to this domain")
 
     # Deprovision ESA resources
-    if domain.is_verified and domain.domain_type == "esa" and domain.esa_saas_id:
+    if domain.is_verified and domain.domain_type == "esa":
         esa_service = ESAService()
 
-        # Delete SaaS manager (Custom Hostname)
-        saas_result = esa_service.delete_saas_manager(domain.esa_saas_id)
-        if not saas_result['success']:
-            print(f"Warning: Failed to delete SaaS manager: {saas_result.get('error')}")
+        if domain.esa_saas_id:
+            # External domain: delete SaaS manager (Custom Hostname)
+            saas_result = esa_service.delete_saas_manager(domain.esa_saas_id)
+            if not saas_result['success']:
+                logger.warning(f"Failed to delete SaaS manager for {domain.domain}: {saas_result.get('error')}")
 
         # Delete Edge KV mapping
         kv_result = esa_service.delete_edge_kv_mapping(domain.domain)
         if not kv_result['success']:
-            print(f"Warning: Failed to delete Edge KV mapping: {kv_result.get('error')}")
+            logger.warning(f"Failed to delete Edge KV mapping for {domain.domain}: {kv_result.get('error')}")
+
+        # Platform subdomain custom domains: clean up ESA DNS record + DNS CNAME
+        is_base_subdomain = domain.domain.endswith(f'.{settings.cdn_base_domain}') or domain.domain == settings.cdn_base_domain
+        if is_base_subdomain and project.project_type == "static":
+            try:
+                esa_service.cleanup_static_subdomain(domain.domain)
+            except Exception as e:
+                logger.warning(f"Failed to cleanup static subdomain for custom domain {domain.domain}: {e}")
 
     # Delete from database
     db.delete(domain)
