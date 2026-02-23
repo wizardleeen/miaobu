@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Square } from 'lucide-react'
 
 interface ChatInputProps {
   onSend: (message: string) => void
+  onStop?: () => void
   disabled?: boolean
+  isStreaming?: boolean
 }
 
-export default function ChatInput({ onSend, disabled }: ChatInputProps) {
+export default function ChatInput({ onSend, onStop, disabled, isStreaming }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -47,13 +49,22 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
           rows={1}
           className="flex-1 resize-none bg-[--bg-secondary] border border-[--border-primary] rounded-xl px-4 py-3 text-sm text-[--text-primary] placeholder-[--text-tertiary] focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50 transition-colors"
         />
-        <button
-          onClick={handleSend}
-          disabled={disabled || !message.trim()}
-          className="shrink-0 p-3 rounded-xl bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {disabled ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-        </button>
+        {isStreaming ? (
+          <button
+            onClick={onStop}
+            className="shrink-0 p-3 rounded-xl bg-red-500 text-white hover:bg-red-600 transition-colors"
+          >
+            <Square size={18} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={disabled || !message.trim()}
+            className="shrink-0 p-3 rounded-xl bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <Send size={18} />
+          </button>
+        )}
       </div>
     </div>
   )

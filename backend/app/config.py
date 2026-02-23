@@ -86,6 +86,12 @@ class Settings(BaseSettings):
     # Anthropic API
     anthropic_api_key: str = ""
 
+    # AI Chat model selection
+    ai_chat_provider: str = "anthropic"         # "anthropic" or "minimax"
+    minimax_api_key: str = ""
+    minimax_base_url: str = "https://api.minimaxi.com/anthropic"  # China endpoint
+    minimax_model: str = "MiniMax-M2.5"
+
     class Config:
         env_file = ".env"
         case_sensitive = False
