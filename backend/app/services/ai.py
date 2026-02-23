@@ -26,6 +26,16 @@ from .github_actions import trigger_build
 settings = get_settings()
 
 # --------------------------------------------------------------------------- #
+# Session cancellation
+# --------------------------------------------------------------------------- #
+
+_cancelled_sessions: set = set()
+
+
+def cancel_session(session_id: int):
+    _cancelled_sessions.add(session_id)
+
+# --------------------------------------------------------------------------- #
 # System prompt
 # --------------------------------------------------------------------------- #
 
@@ -69,6 +79,23 @@ You can:
 - `python`: Python web servers (FastAPI, Flask, Django).
 - `manul`: Manul persistent applications. **Before writing or modifying Manul code, call `get_manul_guide` first** to load the language reference.
 If you created a project with the wrong type, use `update_project` to change it before the next deployment.
+
+## Server Port Requirement
+Backend apps (Node.js and Python) run on Aliyun Function Compute, which forwards HTTP requests to **port 9000**. Your app MUST listen on port 9000.
+- **Python**: `uvicorn main:app --host 0.0.0.0 --port 9000` (NOT 8000)
+- **Node.js**: The platform sets `PORT=9000` automatically; make sure your code reads `process.env.PORT` (e.g., `app.listen(process.env.PORT || 9000)`)
+- Using any other port (e.g., 8000, 3000) will cause the app to hang with zero response.
+
+## Monorepo / Full-Stack Projects
+When a project has both frontend and backend in one repo (e.g., `frontend/` and `backend/` directories):
+- Create ONE GitHub repository with subdirectories
+- Import EACH subdirectory as a SEPARATE Miaobu project using `root_directory`
+- Example: a React + FastAPI app needs two `create_miaobu_project` calls:
+  1. `root_directory: "frontend"`, `project_type: "static"`
+  2. `root_directory: "backend"`, `project_type: "python"`, `start_command: "uvicorn main:app --host 0.0.0.0 --port 9000"`
+- Each project gets its own slug, domain, and deployment pipeline
+- After creating both projects, use `set_env_var` to connect them (e.g., `VITE_API_URL` on the frontend pointing to the backend's domain, `CORS_ORIGINS` on the backend pointing to the frontend's domain), then trigger redeployment for both
+- Never try to deploy a monorepo as a single project with `cd` hacks in build commands
 
 ## Build Failure Diagnosis & Auto-Fix
 After committing code (via `commit_files`) that triggers a deployment:
@@ -792,6 +819,7 @@ TOOLS = [
                 "start_command": {"type": "string", "description": "Start command for node/python projects."},
                 "node_version": {"type": "string", "description": "Node.js version (e.g. '18', '20')."},
                 "python_version": {"type": "string", "description": "Python version (e.g. '3.11')."},
+                "root_directory": {"type": "string", "description": "Subdirectory within the repo to deploy from (for monorepos). E.g., 'frontend' or 'backend'. Leave empty for single-project repos."},
             },
             "required": ["owner", "repo", "project_type"],
         },
@@ -1126,7 +1154,7 @@ async def _exec_create_miaobu_project(
         .filter(
             Project.user_id == user.id,
             Project.github_repo_id == repo_info["id"],
-            Project.root_directory == "",
+            Project.root_directory == tool_input.get("root_directory", ""),
         )
         .first()
     )
@@ -1148,7 +1176,7 @@ async def _exec_create_miaobu_project(
         default_branch=repo_info.get("default_branch", "main"),
         name=repo_info["name"],
         slug=slug,
-        root_directory="",
+        root_directory=tool_input.get("root_directory", ""),
         project_type=project_type,
         oss_path=f"projects/{slug}/",
         default_domain=f"{slug}.{settings.cdn_base_domain}",
@@ -1173,6 +1201,19 @@ async def _exec_create_miaobu_project(
     db.add(project)
     db.commit()
     db.refresh(project)
+
+    # Create Manul app on the Manul server
+    if project_type == "manul":
+        from .manul import ManulService
+        manul_service = ManulService()
+        manul_result = manul_service.create_app(slug)
+        if not manul_result["success"]:
+            db.delete(project)
+            db.commit()
+            return {"error": f"Failed to create Manul app: {manul_result.get('error')}"}
+        project.manul_app_id = manul_result["app_id"]
+        project.manul_app_name = slug
+        db.commit()
 
     # Create webhook
     webhook_error = None
@@ -1758,14 +1799,25 @@ async def stream_chat(
 
     user_ctx = _UserCtx(ctx["user_id"], ctx["github_access_token"], ctx["github_username"])
 
-    # Configure Anthropic client with proxy if set
-    client_kwargs: Dict[str, Any] = {"api_key": settings.anthropic_api_key}
-    if settings.http_proxy:
+    # Configure client based on provider
+    if settings.ai_chat_provider == "minimax":
+        client_kwargs: Dict[str, Any] = {
+            "api_key": settings.minimax_api_key,
+            "base_url": settings.minimax_base_url,
+        }
+        # No proxy for MiniMax China endpoint
         import httpx as _httpx
-        client_kwargs["http_client"] = _httpx.Client(
-            proxy=settings.http_proxy,
-            timeout=600.0,
-        )
+        client_kwargs["http_client"] = _httpx.Client(timeout=600.0)
+        model_name = settings.minimax_model
+    else:
+        client_kwargs = {"api_key": settings.anthropic_api_key}
+        if settings.http_proxy:
+            import httpx as _httpx
+            client_kwargs["http_client"] = _httpx.Client(
+                proxy=settings.http_proxy,
+                timeout=600.0,
+            )
+        model_name = SONNET_MODEL
     client = anthropic.Anthropic(**client_kwargs)
 
     accumulated_text = ""
@@ -1790,7 +1842,11 @@ async def stream_chat(
             await queue.put(_sse_event("stream_start", {}))
 
             for round_num in range(MAX_TOOL_ROUNDS):
-                model = SONNET_MODEL
+                if session_id in _cancelled_sessions:
+                    _cancelled_sessions.discard(session_id)
+                    break
+
+                model = model_name
 
                 response = await asyncio.to_thread(
                     client.messages.create,
@@ -1955,6 +2011,7 @@ async def stream_chat(
                     pass  # Best-effort save
             await queue.put(_sse_event("error", {"message": str(e)}))
         finally:
+            _cancelled_sessions.discard(session_id)
             producer_done.set()
             await queue.put(None)  # sentinel to stop consumer
 

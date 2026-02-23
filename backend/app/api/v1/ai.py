@@ -141,6 +141,25 @@ async def chat(
     )
 
 
+@router.post("/sessions/{session_id}/stop")
+async def stop_generation(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Stop an in-progress AI generation for a session."""
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == current_user.id,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    from ...services.ai import cancel_session
+    cancel_session(session_id)
+    return {"stopped": True}
+
+
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: int,

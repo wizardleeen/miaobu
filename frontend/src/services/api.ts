@@ -284,6 +284,10 @@ class ApiService {
     await this.client.delete(`/ai/sessions/${sessionId}`)
   }
 
+  async stopChatGeneration(sessionId: number): Promise<void> {
+    await this.client.post(`/ai/sessions/${sessionId}/stop`)
+  }
+
   sendChatMessage(sessionId: number, message: string): {
     stream: ReadableStream<Uint8Array> | null
     abort: () => void

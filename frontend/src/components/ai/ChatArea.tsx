@@ -72,6 +72,11 @@ export default function ChatArea({ sessionId }: ChatAreaProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const handleStop = useCallback(() => {
+    abortRef.current?.()
+    api.stopChatGeneration(sessionId)
+  }, [sessionId])
+
   const handleSend = useCallback(
     async (text: string) => {
       if (isStreaming) return
@@ -215,7 +220,7 @@ export default function ChatArea({ sessionId }: ChatAreaProps) {
       </div>
 
       {/* Input */}
-      <ChatInput onSend={handleSend} disabled={isStreaming} />
+      <ChatInput onSend={handleSend} onStop={handleStop} isStreaming={isStreaming} />
     </div>
   )
 }
