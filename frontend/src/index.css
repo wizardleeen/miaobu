@@ -93,6 +93,41 @@ code {
   }
 }
 
+/* Chat markdown content */
+.chat-markdown pre {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+.chat-markdown code {
+  color: var(--accent);
+  font-size: 0.85em;
+}
+
+.chat-markdown pre code {
+  color: var(--text-primary);
+}
+
+.chat-markdown a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.chat-markdown p, .chat-markdown li, .chat-markdown td, .chat-markdown th {
+  overflow-wrap: anywhere;
+}
+
+.chat-markdown table {
+  width: 100%;
+  table-layout: fixed;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

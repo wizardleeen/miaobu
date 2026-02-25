@@ -102,6 +102,7 @@ export default function ChatArea({ sessionId }: ChatAreaProps) {
         const reader = stream.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
+        let receivedDone = false
 
         while (true) {
           const { done, value } = await reader.read()
@@ -157,12 +158,14 @@ export default function ChatArea({ sessionId }: ChatAreaProps) {
                 }
 
                 case 'message_done':
+                  receivedDone = true
                   // Invalidate session list to update title
                   queryClient.invalidateQueries({ queryKey: ['chatSessions'] })
                   queryClient.invalidateQueries({ queryKey: ['chatSession', sessionId] })
                   break
 
                 case 'error':
+                  receivedDone = true
                   assistantMsg = {
                     ...assistantMsg,
                     content: assistantMsg.content + `\n\n**Error:** ${event.data.message}`,
@@ -174,6 +177,15 @@ export default function ChatArea({ sessionId }: ChatAreaProps) {
               // ignore malformed events
             }
           }
+        }
+        // Detect abrupt stream termination (e.g., server timeout)
+        if (!receivedDone) {
+          assistantMsg = {
+            ...assistantMsg,
+            content: assistantMsg.content + '\n\n**错误：连接中断，服务器可能超时。请重新发送消息继续。**',
+          }
+          setMessages((prev) => [...prev.slice(0, -1), assistantMsg])
+          queryClient.invalidateQueries({ queryKey: ['chatSession', sessionId] })
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') {

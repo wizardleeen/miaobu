@@ -20,10 +20,12 @@ Miaobu is self-hosted and utilizes an automated CI/CD pipeline. Any changes merg
 **Production Environment:**
 * **Frontend:** Project name is `miaobu` | Domain: `miaobu.metavm.tech`
 * **Backend:** Project name is `miaobu-backend` | Domains: `miaobu1.metavm.tech` or `metavm-api.metavm.tech`
+* **ESA site:** metavm.tech
 
 **Staging Environment:**
 * **Frontend:** Domain: `miaobu-staging.metavm.tech`
 * **Backend:** Domain: `miaobu1-staging.metavm.tech`
+* **ESA site:** kyvy.me
 
 ## Database
 

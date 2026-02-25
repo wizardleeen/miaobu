@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ChevronDown, ChevronRight, Check, Loader2, Wrench } from 'lucide-react'
+import { ChevronDown, ChevronRight, Check, Loader2, Wrench, Globe } from 'lucide-react'
 
 interface ToolCall {
   id: string
@@ -34,6 +34,7 @@ const TOOL_LABELS: Record<string, string> = {
   set_env_var: '设置环境变量',
   delete_env_var: '删除环境变量',
   get_manul_guide: '加载 Manul 指南',
+  fetch_project_url: '访问项目 URL',
 }
 
 function getToolSubtitle(tool: ToolCall): string | null {
@@ -57,9 +58,52 @@ function getToolSubtitle(tool: ToolCall): string | null {
     case 'set_env_var':
     case 'delete_env_var':
       return input.key || null
+    case 'fetch_project_url':
+      return `${input.method || 'GET'} ${input.path}` || null
     default:
       return null
   }
+}
+
+function statusColor(code: number): string {
+  if (code >= 200 && code < 300) return 'text-green-400'
+  if (code >= 300 && code < 400) return 'text-yellow-400'
+  return 'text-red-400'
+}
+
+function FetchResultDisplay({ result }: { result: Record<string, any> }) {
+  if (result.error) {
+    return (
+      <div className="text-xs text-red-400 bg-[--bg-tertiary] rounded p-2">
+        {result.error}
+      </div>
+    )
+  }
+
+  const code = result.status_code as number
+  const headers = result.headers as Record<string, string> | undefined
+  const contentType = headers?.['content-type'] || ''
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 text-xs">
+        <span className={`font-mono font-bold ${statusColor(code)}`}>{code}</span>
+        <span className="text-[--text-tertiary] truncate">{result.url}</span>
+      </div>
+      {headers && Object.keys(headers).length > 0 && (
+        <div className="text-[10px] text-[--text-tertiary] font-mono bg-[--bg-tertiary] rounded px-2 py-1">
+          {Object.entries(headers).map(([k, v]) => (
+            <div key={k}><span className="text-[--text-secondary]">{k}:</span> {v}</div>
+          ))}
+        </div>
+      )}
+      {result.body && (
+        <pre className="text-xs text-[--text-secondary] bg-[--bg-tertiary] rounded p-2 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+          {contentType.includes('json') ? (() => { try { return JSON.stringify(JSON.parse(result.body), null, 2) } catch { return result.body } })() : result.body}
+        </pre>
+      )}
+    </div>
+  )
 }
 
 function ToolCallCard({ tool }: { tool: ToolCall }) {
@@ -79,9 +123,16 @@ function ToolCallCard({ tool }: { tool: ToolCall }) {
         ) : (
           <Loader2 size={14} className="animate-spin text-accent shrink-0" />
         )}
-        <Wrench size={14} className="shrink-0 text-[--text-tertiary]" />
+        {tool.name === 'fetch_project_url'
+          ? <Globe size={14} className="shrink-0 text-[--text-tertiary]" />
+          : <Wrench size={14} className="shrink-0 text-[--text-tertiary]" />
+        }
         <span className="flex-1 truncate">
-          {label}{subtitle && <span className="text-[--text-tertiary] font-normal"> · {subtitle}</span>}
+          {label}
+          {subtitle && <span className="text-[--text-tertiary] font-normal"> · {subtitle}</span>}
+          {tool.name === 'fetch_project_url' && isDone && tool.result && !tool.result.error && (
+            <span className={`font-mono font-normal ml-1 ${statusColor(tool.result.status_code)}`}>{tool.result.status_code}</span>
+          )}
         </span>
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
@@ -96,9 +147,15 @@ function ToolCallCard({ tool }: { tool: ToolCall }) {
           {tool.result && (
             <div>
               <span className="text-[10px] uppercase tracking-wider text-[--text-tertiary]">Result</span>
-              <pre className="mt-0.5 text-xs text-[--text-secondary] bg-[--bg-tertiary] rounded p-2 overflow-x-auto max-h-48 overflow-y-auto">
-                {JSON.stringify(tool.result, null, 2)}
-              </pre>
+              {tool.name === 'fetch_project_url' ? (
+                <div className="mt-0.5">
+                  <FetchResultDisplay result={tool.result} />
+                </div>
+              ) : (
+                <pre className="mt-0.5 text-xs text-[--text-secondary] bg-[--bg-tertiary] rounded p-2 overflow-x-auto max-h-48 overflow-y-auto">
+                  {JSON.stringify(tool.result, null, 2)}
+                </pre>
+              )}
             </div>
           )}
         </div>
@@ -111,7 +168,7 @@ export default function ChatMessage({ role, content, toolCalls }: ChatMessagePro
   if (role === 'user') {
     return (
       <div className="flex justify-end mb-4">
-        <div className="max-w-[80%] bg-accent text-white px-4 py-2.5 rounded-2xl rounded-br-md text-sm whitespace-pre-wrap">
+        <div className="max-w-[80%] bg-accent text-white px-4 py-2.5 rounded-2xl rounded-br-md text-sm whitespace-pre-wrap break-words overflow-hidden">
           {content}
         </div>
       </div>
@@ -120,7 +177,7 @@ export default function ChatMessage({ role, content, toolCalls }: ChatMessagePro
 
   return (
     <div className="flex justify-start mb-4">
-      <div className="max-w-[80%]">
+      <div className="max-w-[80%] min-w-0 [overflow-wrap:anywhere]">
         {toolCalls && toolCalls.length > 0 && (
           <div className="mb-2">
             {toolCalls.map((tool) => (
@@ -129,7 +186,7 @@ export default function ChatMessage({ role, content, toolCalls }: ChatMessagePro
           </div>
         )}
         {content && (
-          <div className="bg-[--bg-tertiary] px-4 py-2.5 rounded-2xl rounded-bl-md text-sm text-[--text-primary] prose prose-sm max-w-none prose-invert prose-pre:bg-[--bg-secondary] prose-pre:text-[--text-primary] prose-code:text-accent prose-a:text-accent">
+          <div className="chat-markdown bg-[--bg-tertiary] px-4 py-2.5 rounded-2xl rounded-bl-md text-sm text-[--text-primary]">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
         )}
