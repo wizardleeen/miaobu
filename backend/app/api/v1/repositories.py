@@ -262,6 +262,18 @@ async def import_repository(
         db.commit()
         db.refresh(project)
 
+        # Set up ESA site DNS record + Aliyun DNS CNAME for static subdomains
+        if project_type == "static":
+            try:
+                from ...services.esa import ESAService
+                esa_service = ESAService()
+                subdomain = f"{slug}.{settings.cdn_base_domain}"
+                result = esa_service.setup_static_subdomain(subdomain)
+                if not result.get('success'):
+                    logger.warning(f"Static subdomain setup failed for {subdomain}: {result.get('error') or result.get('errors')}")
+            except Exception as e:
+                logger.warning(f"Static subdomain setup failed for {slug}: {e}")
+
         # Create Manul app on the Manul server
         if project_type == "manul":
             from ...services.manul import ManulService

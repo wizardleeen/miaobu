@@ -61,6 +61,7 @@ You can:
 - List and inspect the user's existing projects
 - Monitor deployments, read build logs, and automatically diagnose and fix build failures
 - Manage environment variables (list, set, delete) for projects — useful for configuring API keys, database URLs, and other secrets
+- Fetch project URLs to verify deployments are working, test API endpoints, and debug runtime issues
 
 ## Guidelines
 1. Detect the user's language from their messages and respond in the same language (default: Chinese).
@@ -1014,6 +1015,37 @@ TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "fetch_project_url",
+        "description": "Make an HTTP request to a deployed Miaobu project URL. Use this to verify deployments, test API endpoints, debug issues, or inspect responses. Supports all HTTP methods. Only works for projects owned by the user.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "The Miaobu project ID.",
+                },
+                "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+                    "description": "HTTP method. Defaults to GET.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Request path (e.g., '/' or '/api/health').",
+                },
+                "headers": {
+                    "type": "object",
+                    "description": "Request headers as key-value pairs (e.g., {\"Content-Type\": \"application/json\"}).",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Request body (for POST/PUT/PATCH). Send JSON as a string.",
+                },
+            },
+            "required": ["project_id", "path"],
+        },
+    },
 ]
 
 # --------------------------------------------------------------------------- #
@@ -1123,12 +1155,16 @@ async def _exec_create_repository(
 async def _exec_commit_files(
     tool_input: Dict[str, Any], user: User, db: Session
 ) -> Dict[str, Any]:
+    files = tool_input["files"]
+    # Some models (e.g., MiniMax) occasionally send files as a JSON string
+    if isinstance(files, str):
+        files = json.loads(files)
     result = await GitHubService.commit_files(
         user.github_access_token,
         tool_input["owner"],
         tool_input["repo"],
         tool_input["branch"],
-        tool_input["files"],
+        files,
         tool_input["commit_message"],
     )
     return result
@@ -1201,6 +1237,18 @@ async def _exec_create_miaobu_project(
     db.add(project)
     db.commit()
     db.refresh(project)
+
+    # Set up ESA site DNS record + Aliyun DNS CNAME for static subdomains
+    if project_type == "static":
+        try:
+            from .esa import ESAService
+            esa_service = ESAService()
+            subdomain = f"{project.slug}.{settings.cdn_base_domain}"
+            result = esa_service.setup_static_subdomain(subdomain)
+            if not result.get('success'):
+                logger.warning(f"Static subdomain setup failed for {subdomain}: {result.get('error') or result.get('errors')}")
+        except Exception as e:
+            logger.warning(f"Static subdomain setup failed for {project.slug}: {e}")
 
     # Create Manul app on the Manul server
     if project_type == "manul":
@@ -1638,6 +1686,75 @@ async def _exec_delete_env_var(
     return {"deleted": True, "key": key, "environment": environment}
 
 
+async def _exec_fetch_project_url(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    project = (
+        db.query(Project)
+        .filter(Project.id == tool_input["project_id"], Project.user_id == user.id)
+        .first()
+    )
+    if not project:
+        return {"error": "Project not found or access denied."}
+
+    if not project.default_domain:
+        return {"error": "Project has no domain configured."}
+
+    method = tool_input.get("method", "GET").upper()
+    path = tool_input["path"]
+    if not path.startswith("/"):
+        path = "/" + path
+    url = f"https://{project.default_domain}{path}"
+    req_headers = tool_input.get("headers") or {}
+    body = tool_input.get("body")
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=15.0, follow_redirects=True
+        ) as http_client:
+            response = await http_client.request(
+                method=method,
+                url=url,
+                headers=req_headers,
+                content=body.encode("utf-8") if body else None,
+            )
+    except httpx.TimeoutException:
+        return {"error": f"Request timed out after 15 seconds: {method} {url}"}
+    except httpx.ConnectError as e:
+        return {"error": f"Connection failed to {url}: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Request failed: {str(e)}"}
+
+    # Collect selected response headers
+    resp_headers = {}
+    for h in ("content-type", "content-length", "location", "server"):
+        if h in response.headers:
+            resp_headers[h] = response.headers[h]
+
+    # Check if response is text-based
+    content_type = response.headers.get("content-type", "")
+    is_text = any(
+        t in content_type
+        for t in ("text/", "json", "xml", "javascript", "html", "css")
+    )
+
+    result: Dict[str, Any] = {
+        "url": url,
+        "status_code": response.status_code,
+        "headers": resp_headers,
+    }
+
+    if is_text:
+        body_text = response.text
+        if len(body_text) > 4000:
+            body_text = body_text[:4000] + "\n...(truncated, total length: " + str(len(response.text)) + " chars)"
+        result["body"] = body_text
+    else:
+        result["body"] = f"(binary content, {len(response.content)} bytes)"
+
+    return result
+
+
 async def _exec_get_manul_guide(
     tool_input: Dict[str, Any], user: User, db: Session
 ) -> Dict[str, Any]:
@@ -1662,6 +1779,7 @@ TOOL_EXECUTORS = {
     "set_env_var": _exec_set_env_var,
     "delete_env_var": _exec_delete_env_var,
     "get_manul_guide": _exec_get_manul_guide,
+    "fetch_project_url": _exec_fetch_project_url,
 }
 
 
@@ -1805,9 +1923,14 @@ async def stream_chat(
             "api_key": settings.minimax_api_key,
             "base_url": settings.minimax_base_url,
         }
-        # No proxy for MiniMax China endpoint
+        # Explicitly bypass proxy for MiniMax China endpoint.
+        # httpx respects HTTPS_PROXY env var by default — we must override
+        # it by providing a plain transport with no proxy configured.
         import httpx as _httpx
-        client_kwargs["http_client"] = _httpx.Client(timeout=600.0)
+        client_kwargs["http_client"] = _httpx.Client(
+            timeout=600.0,
+            transport=_httpx.HTTPTransport(),
+        )
         model_name = settings.minimax_model
     else:
         client_kwargs = {"api_key": settings.anthropic_api_key}
@@ -1957,6 +2080,30 @@ async def stream_chat(
                     accumulated_tool_results.extend(round_tool_results)
                     accumulated_text += round_text
 
+                    # Incremental save: persist progress after each tool round
+                    # so context is preserved if the process is killed (FC timeout)
+                    inc_db = SessionLocal()
+                    try:
+                        # Upsert: delete previous incremental save, insert new one
+                        inc_db.query(ChatMessage).filter(
+                            ChatMessage.session_id == session_id,
+                            ChatMessage.role == "assistant",
+                            ChatMessage.content.like("%[incomplete]"),
+                        ).delete(synchronize_session=False)
+                        inc_msg = ChatMessage(
+                            session_id=session_id,
+                            role="assistant",
+                            content=accumulated_text + "\n\n[incomplete]",
+                            tool_calls=json.dumps(accumulated_tool_calls, ensure_ascii=False) if accumulated_tool_calls else None,
+                            tool_results=json.dumps(accumulated_tool_results, ensure_ascii=False) if accumulated_tool_results else None,
+                        )
+                        inc_db.add(inc_msg)
+                        inc_db.commit()
+                    except Exception:
+                        pass  # Best-effort
+                    finally:
+                        inc_db.close()
+
                     assistant_content = []
                     if round_text:
                         assistant_content.append({"type": "text", "text": round_text})
@@ -1977,6 +2124,12 @@ async def stream_chat(
             # Save assistant message with a fresh DB session
             save_db = SessionLocal()
             try:
+                # Remove any incremental save first
+                save_db.query(ChatMessage).filter(
+                    ChatMessage.session_id == session_id,
+                    ChatMessage.role == "assistant",
+                    ChatMessage.content.like("%[incomplete]"),
+                ).delete(synchronize_session=False)
                 assistant_msg = ChatMessage(
                     session_id=session_id,
                     role="assistant",
@@ -1994,21 +2147,27 @@ async def stream_chat(
         except Exception as e:
             traceback.print_exc()
             # Save whatever was accumulated so context isn't lost
-            if accumulated_text or accumulated_tool_calls:
-                try:
-                    err_db = SessionLocal()
+            try:
+                err_db = SessionLocal()
+                # Remove any incremental save
+                err_db.query(ChatMessage).filter(
+                    ChatMessage.session_id == session_id,
+                    ChatMessage.role == "assistant",
+                    ChatMessage.content.like("%[incomplete]"),
+                ).delete(synchronize_session=False)
+                if accumulated_text or accumulated_tool_calls:
                     err_msg = ChatMessage(
                         session_id=session_id,
                         role="assistant",
-                        content=accumulated_text + f"\n\n[错误: {str(e)}]",
+                        content=(accumulated_text or "") + f"\n\n[错误: {str(e)}]",
                         tool_calls=json.dumps(accumulated_tool_calls, ensure_ascii=False) if accumulated_tool_calls else None,
                         tool_results=json.dumps(accumulated_tool_results, ensure_ascii=False) if accumulated_tool_results else None,
                     )
                     err_db.add(err_msg)
-                    err_db.commit()
-                    err_db.close()
-                except Exception:
-                    pass  # Best-effort save
+                err_db.commit()
+                err_db.close()
+            except Exception:
+                pass  # Best-effort save
             await queue.put(_sse_event("error", {"message": str(e)}))
         finally:
             _cancelled_sessions.discard(session_id)
