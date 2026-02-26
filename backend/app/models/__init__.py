@@ -105,11 +105,11 @@ class Project(Base):
     default_domain = Column(String(255))  # {slug}.miaobu.app
 
     # Active deployment tracking
-    active_deployment_id = Column(Integer, ForeignKey("deployments.id"), index=True)
+    active_deployment_id = Column(Integer, ForeignKey("deployments.id", ondelete="SET NULL"), index=True)
 
     # Staging environment
     staging_enabled = Column(Boolean, default=False, nullable=False)
-    staging_deployment_id = Column(Integer, ForeignKey("deployments.id"), index=True)
+    staging_deployment_id = Column(Integer, ForeignKey("deployments.id", ondelete="SET NULL"), index=True)
     staging_fc_function_name = Column(String(255))
     staging_fc_endpoint_url = Column(String(512))
     staging_domain = Column(String(255))
@@ -209,7 +209,7 @@ class CustomDomain(Base):
     cname_target = Column(String(255), default="cname.metavm.tech")
 
     # Routing fields
-    active_deployment_id = Column(Integer, ForeignKey("deployments.id"), index=True)  # Which deployment to serve
+    active_deployment_id = Column(Integer, ForeignKey("deployments.id", ondelete="SET NULL"), index=True)  # Which deployment to serve
     edge_kv_synced = Column(Boolean, default=False, nullable=False)  # Whether Edge KV is up to date
     edge_kv_synced_at = Column(DateTime(timezone=True))  # Last successful KV sync time
     auto_update_enabled = Column(Boolean, default=True, nullable=False)  # Auto-promote new deployments
