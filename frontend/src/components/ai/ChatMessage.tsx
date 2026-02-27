@@ -35,6 +35,10 @@ const TOOL_LABELS: Record<string, string> = {
   delete_env_var: '删除环境变量',
   get_manul_guide: '加载 Manul 指南',
   fetch_project_url: '访问项目 URL',
+  glob_repo_files: '搜索文件',
+  grep_repo_files: '搜索代码',
+  git_log: '提交历史',
+  git_diff: '比较差异',
 }
 
 function getToolSubtitle(tool: ToolCall): string | null {
@@ -60,6 +64,14 @@ function getToolSubtitle(tool: ToolCall): string | null {
       return input.key || null
     case 'fetch_project_url':
       return `${input.method || 'GET'} ${input.path}` || null
+    case 'glob_repo_files':
+      return input.pattern || null
+    case 'grep_repo_files':
+      return input.query || null
+    case 'git_log':
+      return input.path || input.branch || null
+    case 'git_diff':
+      return input.base && input.head ? `${input.base}...${input.head}` : null
     default:
       return null
   }

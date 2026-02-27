@@ -507,6 +507,71 @@ class GitHubService:
             }
 
     @staticmethod
+    async def search_code(
+        access_token: str, owner: str, repo: str, query: str,
+        extension: Optional[str] = None, path: Optional[str] = None, per_page: int = 20
+    ) -> Dict[str, Any]:
+        """Search code in a repository. Returns file paths and text match fragments."""
+        q_parts = [query, f"repo:{owner}/{repo}"]
+        if extension:
+            q_parts.append(f"extension:{extension}")
+        if path:
+            q_parts.append(f"path:{path}")
+        async with GitHubService._get_client() as client:
+            response = await client.get(
+                f"{GitHubService.GITHUB_API_URL}/search/code",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github.text-match+json",
+                },
+                params={
+                    "q": " ".join(q_parts),
+                    "per_page": per_page,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+    @staticmethod
+    async def get_commits(
+        access_token: str, owner: str, repo: str,
+        branch: Optional[str] = None, path: Optional[str] = None, per_page: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Get commit history for a repository, optionally filtered by branch or file path."""
+        params: Dict[str, Any] = {"per_page": per_page}
+        if branch:
+            params["sha"] = branch
+        if path:
+            params["path"] = path
+        async with GitHubService._get_client() as client:
+            response = await client.get(
+                f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/commits",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                params=params,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    @staticmethod
+    async def compare_commits(
+        access_token: str, owner: str, repo: str, base: str, head: str
+    ) -> Dict[str, Any]:
+        """Compare two commits or branches. Returns file diffs and metadata."""
+        async with GitHubService._get_client() as client:
+            response = await client.get(
+                f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/compare/{base}...{head}",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+    @staticmethod
     async def search_repositories(
         access_token: str, query: str, page: int = 1, per_page: int = 30
     ) -> Dict[str, Any]:

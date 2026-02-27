@@ -6,6 +6,7 @@ Streams the entire interaction via SSE to the frontend.
 """
 import asyncio
 import json
+import re
 import secrets
 import traceback
 from datetime import datetime, timezone
@@ -59,6 +60,10 @@ You can:
 - Create Miaobu projects from repositories and trigger deployments
 - Update project settings (project type, build commands, etc.)
 - List and inspect the user's existing projects
+- Search for files by glob pattern (e.g., find all .tsx files in src/)
+- Search file contents by keyword (find where a function or variable is used)
+- View commit history for a repo or specific file
+- Compare commits/branches to see what changed (diffs)
 - Monitor deployments, read build logs, and automatically diagnose and fix build failures
 - Manage environment variables (list, set, delete) for projects — useful for configuring API keys, database URLs, and other secrets
 - Fetch project URLs to verify deployments are working, test API endpoints, and debug runtime issues
@@ -109,6 +114,14 @@ After committing code (via `commit_files`) that triggers a deployment:
    d. Call `wait_for_deployment` again to verify the fix worked.
    e. Repeat up to 3 attempts. If still failing, explain the issue to the user.
 4. Pushing a commit via `commit_files` auto-triggers deployment via webhook — do NOT call `trigger_deployment` afterward.
+
+## Code Search & Navigation
+- Use `glob_repo_files` to find files by pattern before reading them. More efficient than listing all files.
+- Use `grep_repo_files` to find where a function, import, or error string is used across the repo.
+- Use `git_log` to understand recent changes, find when something broke, or see who changed a file.
+- Use `git_diff` to see exactly what changed between commits or branches.
+- For modifications: prefer grep/glob to locate relevant files first, then read_file to understand context, then commit_files to make changes.
+- grep_repo_files uses keyword search (not regex). For complex patterns, use glob + read_file instead.
 """
 
 # --------------------------------------------------------------------------- #
@@ -1046,6 +1059,64 @@ TOOLS = [
             "required": ["project_id", "path"],
         },
     },
+    {
+        "name": "glob_repo_files",
+        "description": "Find files in a GitHub repository matching a glob pattern. Supports ** for recursive directory matching, * for single-level wildcards, and ? for single character. More efficient than listing all files when looking for specific file types or paths.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner (GitHub username)."},
+                "repo": {"type": "string", "description": "Repository name."},
+                "pattern": {"type": "string", "description": "Glob pattern (e.g., '**/*.tsx', 'src/**/*.py', '*.json')."},
+                "branch": {"type": "string", "description": "Branch name (optional, defaults to default branch)."},
+            },
+            "required": ["owner", "repo", "pattern"],
+        },
+    },
+    {
+        "name": "grep_repo_files",
+        "description": "Search file contents in a GitHub repository by keyword. Returns matching file paths and text fragments showing where the keyword appears. Uses GitHub code search (keyword-based, not regex). Useful for finding where a function, variable, import, or string is used.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner (GitHub username)."},
+                "repo": {"type": "string", "description": "Repository name."},
+                "query": {"type": "string", "description": "Search keyword or phrase."},
+                "extension": {"type": "string", "description": "Filter by file extension (e.g., 'py', 'tsx', 'js'). Optional."},
+                "path": {"type": "string", "description": "Filter by directory path (e.g., 'src/components'). Optional."},
+            },
+            "required": ["owner", "repo", "query"],
+        },
+    },
+    {
+        "name": "git_log",
+        "description": "View commit history for a GitHub repository. Optionally filter by branch or file path. Returns commit SHA, message, author, and date.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner (GitHub username)."},
+                "repo": {"type": "string", "description": "Repository name."},
+                "branch": {"type": "string", "description": "Branch name to show commits from. Optional."},
+                "path": {"type": "string", "description": "File path to show commits for. Optional."},
+                "limit": {"type": "integer", "description": "Number of commits to return (default 10, max 30)."},
+            },
+            "required": ["owner", "repo"],
+        },
+    },
+    {
+        "name": "git_diff",
+        "description": "Compare two commits or branches in a GitHub repository. Shows which files changed, additions/deletions, and patch diffs. Use commit SHAs or branch names for base and head.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner (GitHub username)."},
+                "repo": {"type": "string", "description": "Repository name."},
+                "base": {"type": "string", "description": "Base commit SHA or branch name."},
+                "head": {"type": "string", "description": "Head commit SHA or branch name."},
+            },
+            "required": ["owner", "repo", "base", "head"],
+        },
+    },
 ]
 
 # --------------------------------------------------------------------------- #
@@ -1755,6 +1826,161 @@ async def _exec_fetch_project_url(
     return result
 
 
+def _glob_match(path: str, pattern: str) -> bool:
+    """Match a file path against a glob pattern supporting ** for recursive dirs."""
+    # Convert glob pattern to regex
+    # fnmatch doesn't handle ** correctly, so we do it manually
+    regex_parts = []
+    i = 0
+    while i < len(pattern):
+        if pattern[i:i+2] == "**":
+            regex_parts.append(".*")
+            i += 2
+            if i < len(pattern) and pattern[i] == "/":
+                i += 1  # skip the trailing slash after **
+        elif pattern[i] == "*":
+            regex_parts.append("[^/]*")
+            i += 1
+        elif pattern[i] == "?":
+            regex_parts.append("[^/]")
+            i += 1
+        elif pattern[i] == ".":
+            regex_parts.append(r"\.")
+            i += 1
+        else:
+            regex_parts.append(re.escape(pattern[i]))
+            i += 1
+    regex = "^" + "".join(regex_parts) + "$"
+    return bool(re.match(regex, path))
+
+
+async def _exec_glob_repo_files(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    files = await GitHubService.get_repository_tree(
+        user.github_access_token,
+        tool_input["owner"],
+        tool_input["repo"],
+        tool_input.get("branch"),
+    )
+    pattern = tool_input["pattern"]
+    matched = [f for f in files if _glob_match(f, pattern)]
+    truncated = len(matched) > 200
+    if truncated:
+        matched = matched[:200]
+    return {
+        "pattern": pattern,
+        "files": matched,
+        "total_matches": len(matched) if not truncated else f"200+ (showing first 200)",
+        "truncated": truncated,
+    }
+
+
+async def _exec_grep_repo_files(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    try:
+        data = await GitHubService.search_code(
+            user.github_access_token,
+            tool_input["owner"],
+            tool_input["repo"],
+            tool_input["query"],
+            extension=tool_input.get("extension"),
+            path=tool_input.get("path"),
+            per_page=30,
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 422:
+            return {"error": "Search query is invalid or the repository is not yet indexed by GitHub. Try a simpler keyword or wait a few minutes for a newly created repo."}
+        if e.response.status_code == 403:
+            return {"error": "GitHub API rate limit exceeded for code search. Wait a moment and try again."}
+        raise
+
+    results = []
+    for item in data.get("items", [])[:30]:
+        fragments = []
+        for tm in item.get("text_matches", [])[:3]:
+            fragments.append(tm.get("fragment", ""))
+        results.append({
+            "path": item["path"],
+            "fragments": fragments,
+        })
+
+    return {
+        "query": tool_input["query"],
+        "total_count": data.get("total_count", 0),
+        "results": results,
+    }
+
+
+async def _exec_git_log(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    limit = min(tool_input.get("limit", 10), 30)
+    commits = await GitHubService.get_commits(
+        user.github_access_token,
+        tool_input["owner"],
+        tool_input["repo"],
+        branch=tool_input.get("branch"),
+        path=tool_input.get("path"),
+        per_page=limit,
+    )
+    result = []
+    for c in commits:
+        commit_data = c.get("commit", {})
+        message = commit_data.get("message", "")
+        if len(message) > 200:
+            message = message[:200] + "..."
+        result.append({
+            "sha": c["sha"][:8],
+            "full_sha": c["sha"],
+            "message": message,
+            "author": commit_data.get("author", {}).get("name", ""),
+            "date": commit_data.get("author", {}).get("date", ""),
+        })
+    return {"commits": result}
+
+
+async def _exec_git_diff(
+    tool_input: Dict[str, Any], user: User, db: Session
+) -> Dict[str, Any]:
+    data = await GitHubService.compare_commits(
+        user.github_access_token,
+        tool_input["owner"],
+        tool_input["repo"],
+        tool_input["base"],
+        tool_input["head"],
+    )
+    files = []
+    total_patch_size = 0
+    patch_cap = 15000
+    for f in data.get("files", []):
+        file_entry: Dict[str, Any] = {
+            "filename": f["filename"],
+            "status": f.get("status", ""),
+            "additions": f.get("additions", 0),
+            "deletions": f.get("deletions", 0),
+        }
+        if f.get("previous_filename"):
+            file_entry["previous_filename"] = f["previous_filename"]
+        patch = f.get("patch", "")
+        if patch and total_patch_size < patch_cap:
+            remaining = patch_cap - total_patch_size
+            if len(patch) > remaining:
+                patch = patch[:remaining] + "\n...(patch truncated)"
+            file_entry["patch"] = patch
+            total_patch_size += len(patch)
+        files.append(file_entry)
+
+    return {
+        "status": data.get("status", ""),
+        "ahead_by": data.get("ahead_by", 0),
+        "behind_by": data.get("behind_by", 0),
+        "total_commits": data.get("total_commits", 0),
+        "files": files,
+    }
+
+
 async def _exec_get_manul_guide(
     tool_input: Dict[str, Any], user: User, db: Session
 ) -> Dict[str, Any]:
@@ -1780,6 +2006,10 @@ TOOL_EXECUTORS = {
     "delete_env_var": _exec_delete_env_var,
     "get_manul_guide": _exec_get_manul_guide,
     "fetch_project_url": _exec_fetch_project_url,
+    "glob_repo_files": _exec_glob_repo_files,
+    "grep_repo_files": _exec_grep_repo_files,
+    "git_log": _exec_git_log,
+    "git_diff": _exec_git_diff,
 }
 
 
