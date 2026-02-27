@@ -508,8 +508,6 @@ async def delete_project(
     # Delete FC packages from Qingdao bucket for Python/Node.js/Manul projects
     if project.project_type in ("python", "node", "manul"):
         try:
-            from ...config import get_settings
-            settings = get_settings()
             fc_oss_service = OSSService(
                 bucket_name=settings.aliyun_fc_oss_bucket,
                 endpoint=settings.aliyun_fc_oss_endpoint,
@@ -535,6 +533,11 @@ async def delete_project(
             fc_service.delete_function(project.staging_fc_function_name)
         except Exception as e:
             logger.warning(f"Failed to delete staging FC function {project.staging_fc_function_name}: {e}")
+
+    # Null out deployment FKs to break circular reference before cascade delete
+    project.active_deployment_id = None
+    project.staging_deployment_id = None
+    db.flush()
 
     db.delete(project)
     db.commit()

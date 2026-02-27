@@ -510,6 +510,11 @@ async def delete_project(
         except Exception:
             pass
 
+    # Null out deployment FKs to break circular reference before cascade delete
+    project.active_deployment_id = None
+    project.staging_deployment_id = None
+    db.flush()
+
     db.delete(project)
     db.commit()
     return None
