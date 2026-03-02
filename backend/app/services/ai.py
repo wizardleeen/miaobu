@@ -1255,24 +1255,6 @@ async def _exec_create_miaobu_project(
         user.github_access_token, owner, repo_name
     )
 
-    # Check if already imported
-    existing = (
-        db.query(Project)
-        .filter(
-            Project.user_id == user.id,
-            Project.github_repo_id == repo_info["id"],
-            Project.root_directory == tool_input.get("root_directory", ""),
-        )
-        .first()
-    )
-    if existing:
-        return {
-            "already_exists": True,
-            "project_id": existing.id,
-            "slug": existing.slug,
-            "domain": existing.default_domain,
-        }
-
     slug = generate_slug(repo_info["name"], user.id, db)
 
     project_kwargs = dict(

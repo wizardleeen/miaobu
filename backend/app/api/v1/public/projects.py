@@ -9,7 +9,7 @@ from ....database import get_db
 from ....models import User, Project
 from ....core.security import get_current_user_flexible
 from ....core.exceptions import (
-    BadRequestException, ConflictException, NotFoundException, ForbiddenException,
+    BadRequestException, NotFoundException, ForbiddenException,
 )
 from .helpers import PaginationParams, paginated_response, single_response
 
@@ -127,16 +127,6 @@ async def create_project(
 
     # Determine root directory
     root_dir = body.root_directory if body.root_directory is not None else detected_root_dir
-
-    # Check for duplicate
-    existing = db.query(Project).filter(
-        Project.user_id == current_user.id,
-        Project.github_repo_id == repo_info["id"],
-        Project.root_directory == root_dir,
-    ).first()
-    if existing:
-        label = f"{repo_info['full_name']}/{root_dir}" if root_dir else repo_info["full_name"]
-        raise ConflictException(f"Repository {label} is already imported")
 
     # Determine project config — use body values if provided, else detected, else defaults
     project_name = body.name if body.name is not None else repo_info["name"]

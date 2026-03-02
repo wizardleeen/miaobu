@@ -17,6 +17,7 @@ interface Repository {
   private: boolean
   updated_at: string
   is_imported: boolean
+  project_count: number
 }
 
 export default function ImportRepositoryPage() {
@@ -197,7 +198,9 @@ export default function ImportRepositoryPage() {
                             <span className="badge-warning">私有</span>
                           )}
                           {repo.is_imported && (
-                            <span className="badge-success">已导入</span>
+                            <span className="badge-success">
+                              {repo.project_count > 1 ? `${repo.project_count} 个项目` : '已导入'}
+                            </span>
                           )}
                         </div>
                         <p className="text-sm text-[--text-secondary] mb-1.5">{repo.full_name}</p>
