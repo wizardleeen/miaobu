@@ -1577,10 +1577,8 @@ async def _exec_trigger_deployment(
             commit_sha = branch_data["commit"]["sha"]
             commit_message = branch_data["commit"]["commit"]["message"]
             commit_author = branch_data["commit"]["commit"]["author"]["name"]
-    except Exception:
-        commit_sha = "manual"
-        commit_message = "Deployment triggered by AI"
-        commit_author = user.github_username
+    except Exception as e:
+        return {"error": f"Failed to fetch latest commit from GitHub: {e}"}
 
     deployment = Deployment(
         project_id=project.id,

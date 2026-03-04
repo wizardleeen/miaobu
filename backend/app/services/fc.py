@@ -39,6 +39,8 @@ class FCService:
             access_key_id=settings.aliyun_access_key_id,
             access_key_secret=settings.aliyun_access_key_secret,
             endpoint=f'{settings.aliyun_account_id}.{fc_region}.fc.aliyuncs.com',
+            read_timeout=30000,
+            connect_timeout=10000,
         )
         self.client = FCClient(config)
         self.account_id = settings.aliyun_account_id

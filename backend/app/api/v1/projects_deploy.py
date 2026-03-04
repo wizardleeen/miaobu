@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-import httpx
 
 from ...database import get_db
 from ...models import User, Project, Deployment, DeploymentStatus
@@ -42,14 +41,9 @@ async def trigger_deployment(
     # Get latest commit info from GitHub
     try:
         owner, repo = project.github_repo_name.split('/')
-        repo_info = await GitHubService.get_repository(
-            current_user.github_access_token,
-            owner,
-            repo
-        )
 
         # Get branch info to get latest commit
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             response = await client.get(
                 f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/branches/{deploy_branch}",
                 headers={
@@ -66,10 +60,10 @@ async def trigger_deployment(
             commit_author = latest_commit['commit']['author']['name']
 
     except Exception as e:
-        # Fallback to manual deployment without commit info
-        commit_sha = "manual"
-        commit_message = f"Manual deployment triggered"
-        commit_author = current_user.github_username
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch latest commit from GitHub: {e}",
+        )
 
     # Create deployment record
     deployment = Deployment(

@@ -1,5 +1,4 @@
 """Public API — Deployment endpoints."""
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -135,7 +134,7 @@ async def trigger_deployment(
         from ....services.github import GitHubService
 
         owner, repo = project.github_repo_name.split("/")
-        async with httpx.AsyncClient() as client:
+        async with GitHubService._get_client() as client:
             response = await client.get(
                 f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/branches/{deploy_branch}",
                 headers={
@@ -149,10 +148,11 @@ async def trigger_deployment(
             commit_sha = latest_commit["sha"]
             commit_message = latest_commit["commit"]["message"]
             commit_author = latest_commit["commit"]["author"]["name"]
-    except Exception:
-        commit_sha = "manual"
-        commit_message = "Manual deployment triggered via API"
-        commit_author = current_user.github_username
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch latest commit from GitHub: {e}",
+        )
 
     deployment = Deployment(
         project_id=project.id,
