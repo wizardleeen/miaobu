@@ -2,13 +2,11 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-import httpx
-
 from ...database import get_db
 from ...models import User, Project
 from ...services.github import GitHubService
 from ...core.security import get_current_user
-from ...core.exceptions import BadRequestException, ConflictException
+from ...core.exceptions import BadRequestException
 from ...api.v1.projects import generate_slug
 from ...config import get_settings
 
@@ -61,11 +59,14 @@ async def list_repositories(
             )
             total_count = len(repositories)
 
-        # Get list of already imported repo IDs
-        imported_repo_ids = db.query(Project.github_repo_id).filter(
-            Project.user_id == current_user.id
-        ).all()
-        imported_ids = {repo_id[0] for repo_id in imported_repo_ids}
+        # Count projects per repo for the current user
+        from sqlalchemy import func as sa_func
+        repo_project_counts = dict(
+            db.query(Project.github_repo_id, sa_func.count(Project.id))
+            .filter(Project.user_id == current_user.id)
+            .group_by(Project.github_repo_id)
+            .all()
+        )
 
         # Format response
         formatted_repos = []
@@ -80,7 +81,8 @@ async def list_repositories(
                 "default_branch": repo.get("default_branch", "main"),
                 "private": repo.get("private", False),
                 "updated_at": repo.get("updated_at"),
-                "is_imported": repo["id"] in imported_ids,
+                "is_imported": repo["id"] in repo_project_counts,
+                "project_count": repo_project_counts.get(repo["id"], 0),
             })
 
         return {
@@ -157,26 +159,6 @@ async def import_repository(
         build_config = analysis["build_config"]
         detected_root_dir = analysis.get("root_directory", "")
         detected_project_type = analysis.get("project_type", "static")
-
-        # Check if already imported (same repo + same root directory = duplicate)
-        # Use custom_config root_directory if provided, else detected, else input param
-        check_root_dir = ""
-        if custom_config and custom_config.get("root_directory"):
-            check_root_dir = custom_config["root_directory"]
-        elif detected_root_dir:
-            check_root_dir = detected_root_dir
-        elif root_directory:
-            check_root_dir = root_directory
-
-        existing = db.query(Project).filter(
-            Project.user_id == current_user.id,
-            Project.github_repo_id == repo_info["id"],
-            Project.root_directory == check_root_dir
-        ).first()
-
-        if existing:
-            label = f"{repo_info['full_name']}/{check_root_dir}" if check_root_dir else repo_info['full_name']
-            raise ConflictException(f"Repository {label} is already imported")
 
         # Use custom config if provided, otherwise use detected config
         if custom_config:
@@ -348,29 +330,22 @@ async def import_repository(
             from ...services.github_actions import trigger_build
 
             # Get latest commit info from GitHub
-            try:
-                branch_url = f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/branches/{repo_info['default_branch']}"
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        branch_url,
-                        headers={
-                            "Authorization": f"Bearer {current_user.github_access_token}",
-                            "Accept": "application/vnd.github.v3+json",
-                        }
-                    )
-                    response.raise_for_status()
-                    branch_data = response.json()
+            branch_url = f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/branches/{repo_info['default_branch']}"
+            async with GitHubService._get_client() as client:
+                response = await client.get(
+                    branch_url,
+                    headers={
+                        "Authorization": f"Bearer {current_user.github_access_token}",
+                        "Accept": "application/vnd.github.v3+json",
+                    }
+                )
+                response.raise_for_status()
+                branch_data = response.json()
 
-                    latest_commit = branch_data['commit']
-                    commit_sha = latest_commit['sha']
-                    commit_message = latest_commit['commit']['message']
-                    commit_author = latest_commit['commit']['author']['name']
-
-            except Exception as e:
-                # Fallback to manual deployment
-                commit_sha = "initial"
-                commit_message = f"Initial deployment after import"
-                commit_author = current_user.github_username
+                latest_commit = branch_data['commit']
+                commit_sha = latest_commit['sha']
+                commit_message = latest_commit['commit']['message']
+                commit_author = latest_commit['commit']['author']['name']
 
             # Create deployment record
             deployment = Deployment(
@@ -437,7 +412,5 @@ async def import_repository(
             }
         }
 
-    except ConflictException:
-        raise
     except Exception as e:
         raise BadRequestException(f"Failed to import repository: {str(e)}")

@@ -1255,24 +1255,6 @@ async def _exec_create_miaobu_project(
         user.github_access_token, owner, repo_name
     )
 
-    # Check if already imported
-    existing = (
-        db.query(Project)
-        .filter(
-            Project.user_id == user.id,
-            Project.github_repo_id == repo_info["id"],
-            Project.root_directory == tool_input.get("root_directory", ""),
-        )
-        .first()
-    )
-    if existing:
-        return {
-            "already_exists": True,
-            "project_id": existing.id,
-            "slug": existing.slug,
-            "domain": existing.default_domain,
-        }
-
     slug = generate_slug(repo_info["name"], user.id, db)
 
     project_kwargs = dict(
@@ -1595,10 +1577,8 @@ async def _exec_trigger_deployment(
             commit_sha = branch_data["commit"]["sha"]
             commit_message = branch_data["commit"]["commit"]["message"]
             commit_author = branch_data["commit"]["commit"]["author"]["name"]
-    except Exception:
-        commit_sha = "manual"
-        commit_message = "Deployment triggered by AI"
-        commit_author = user.github_username
+    except Exception as e:
+        return {"error": f"Failed to fetch latest commit from GitHub: {e}"}
 
     deployment = Deployment(
         project_id=project.id,

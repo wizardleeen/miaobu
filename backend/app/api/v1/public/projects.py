@@ -9,7 +9,7 @@ from ....database import get_db
 from ....models import User, Project
 from ....core.security import get_current_user_flexible
 from ....core.exceptions import (
-    BadRequestException, ConflictException, NotFoundException, ForbiddenException,
+    BadRequestException, NotFoundException, ForbiddenException,
 )
 from .helpers import PaginationParams, paginated_response, single_response
 
@@ -94,7 +94,6 @@ async def create_project(
     from ....services.github_actions import trigger_build
     from ....api.v1.projects import generate_slug
     from ....config import get_settings
-    import httpx
     import secrets
 
     settings = get_settings()
@@ -127,16 +126,6 @@ async def create_project(
 
     # Determine root directory
     root_dir = body.root_directory if body.root_directory is not None else detected_root_dir
-
-    # Check for duplicate
-    existing = db.query(Project).filter(
-        Project.user_id == current_user.id,
-        Project.github_repo_id == repo_info["id"],
-        Project.root_directory == root_dir,
-    ).first()
-    if existing:
-        label = f"{repo_info['full_name']}/{root_dir}" if root_dir else repo_info["full_name"]
-        raise ConflictException(f"Repository {label} is already imported")
 
     # Determine project config — use body values if provided, else detected, else defaults
     project_name = body.name if body.name is not None else repo_info["name"]
@@ -276,28 +265,23 @@ async def create_project(
         from ....models import Deployment, DeploymentStatus
 
         # Get latest commit
-        try:
-            branch_url = (
-                f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}"
-                f"/branches/{repo_info['default_branch']}"
+        branch_url = (
+            f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}"
+            f"/branches/{repo_info['default_branch']}"
+        )
+        async with GitHubService._get_client() as client:
+            resp = await client.get(
+                branch_url,
+                headers={
+                    "Authorization": f"Bearer {current_user.github_access_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
             )
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    branch_url,
-                    headers={
-                        "Authorization": f"Bearer {current_user.github_access_token}",
-                        "Accept": "application/vnd.github.v3+json",
-                    },
-                )
-                resp.raise_for_status()
-                branch_data = resp.json()
-                commit_sha = branch_data["commit"]["sha"]
-                commit_message = branch_data["commit"]["commit"]["message"]
-                commit_author = branch_data["commit"]["commit"]["author"]["name"]
-        except Exception:
-            commit_sha = "initial"
-            commit_message = "Initial deployment after import"
-            commit_author = current_user.github_username
+            resp.raise_for_status()
+            branch_data = resp.json()
+            commit_sha = branch_data["commit"]["sha"]
+            commit_message = branch_data["commit"]["commit"]["message"]
+            commit_author = branch_data["commit"]["commit"]["author"]["name"]
 
         deployment = Deployment(
             project_id=project.id,

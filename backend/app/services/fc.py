@@ -12,8 +12,30 @@ from typing import Dict, Any, Optional
 from alibabacloud_fc20230330.client import Client as FCClient
 from alibabacloud_fc20230330 import models as fc_models
 from alibabacloud_tea_openapi import models as open_api_models
+from alibabacloud_tea_util.models import RuntimeOptions
 
 from ..config import get_settings
+
+# Tea SDK ignores Config.read_timeout/connect_timeout — the actual HTTP
+# timeouts come from RuntimeOptions passed to each *_with_options() call.
+# Tea defaults: connect 5s, read 10s.  FC UpdateFunction can take 20-30s
+# for large code packages, so we need much higher values.
+# Additionally, monkey-patch the Tea core defaults so ANY code path
+# (including those that don't use _with_options) gets the higher timeout.
+import Tea.core
+Tea.core.DEFAULT_READ_TIMEOUT = 300000   # 300 s (ms)
+Tea.core.DEFAULT_CONNECT_TIMEOUT = 10000  # 10 s (ms)
+try:
+    import darabonba.core
+    darabonba.core.DEFAULT_READ_TIMEOUT = 300000
+    darabonba.core.DEFAULT_CONNECT_TIMEOUT = 10000
+except ImportError:
+    pass
+
+FC_RUNTIME_OPTIONS = RuntimeOptions(
+    connect_timeout=10000,   # 10 s  (ms)
+    read_timeout=300000,     # 300 s  (ms)
+)
 
 # Python 3.10 layer ARN (pre-built standalone Python binary)
 PYTHON_LAYER_ARN = 'acs:fc:cn-qingdao:1765215622020297:layers/python310/versions/1'
@@ -133,7 +155,7 @@ class FCService:
                 vpc_config=vpc_config,
             )
             request = fc_models.CreateFunctionRequest(body=create_input)
-            self.client.create_function(request)
+            self.client.create_function_with_options(request, {}, FC_RUNTIME_OPTIONS)
             print(f"FC: Created function {name}")
 
         except Exception as e:
@@ -142,7 +164,7 @@ class FCService:
                 is_update = True
                 merged_env = {}
                 try:
-                    existing = self.client.get_function(name, fc_models.GetFunctionRequest())
+                    existing = self.client.get_function_with_options(name, fc_models.GetFunctionRequest(), {}, FC_RUNTIME_OPTIONS)
                     merged_env = dict(existing.body.environment_variables or {})
                 except Exception:
                     pass
@@ -161,7 +183,7 @@ class FCService:
                     vpc_config=vpc_config,
                 )
                 update_request = fc_models.UpdateFunctionRequest(body=update_input)
-                self.client.update_function(name, update_request)
+                self.client.update_function_with_options(name, update_request, {}, FC_RUNTIME_OPTIONS)
                 print(f"FC: Updated function {name}")
             else:
                 print(f"FC: Error creating function {name}: {e}")
@@ -264,7 +286,7 @@ class FCService:
                 vpc_config=vpc_config,
             )
             request = fc_models.CreateFunctionRequest(body=create_input)
-            self.client.create_function(request)
+            self.client.create_function_with_options(request, {}, FC_RUNTIME_OPTIONS)
             print(f"FC: Created Node.js function {name}")
 
         except Exception as e:
@@ -272,7 +294,7 @@ class FCService:
                 is_update = True
                 merged_env = {}
                 try:
-                    existing = self.client.get_function(name, fc_models.GetFunctionRequest())
+                    existing = self.client.get_function_with_options(name, fc_models.GetFunctionRequest(), {}, FC_RUNTIME_OPTIONS)
                     merged_env = dict(existing.body.environment_variables or {})
                 except Exception:
                     pass
@@ -291,7 +313,7 @@ class FCService:
                     vpc_config=vpc_config,
                 )
                 update_request = fc_models.UpdateFunctionRequest(body=update_input)
-                self.client.update_function(name, update_request)
+                self.client.update_function_with_options(name, update_request, {}, FC_RUNTIME_OPTIONS)
                 print(f"FC: Updated Node.js function {name}")
             else:
                 print(f"FC: Error creating Node.js function {name}: {e}")
@@ -567,7 +589,7 @@ class FCService:
     def get_function_status(self, name: str) -> Dict[str, Any]:
         """Get function status and configuration."""
         try:
-            response = self.client.get_function(name, fc_models.GetFunctionRequest())
+            response = self.client.get_function_with_options(name, fc_models.GetFunctionRequest(), {}, FC_RUNTIME_OPTIONS)
             body = response.body
             endpoint_url = self._get_trigger_url(name)
             return {
