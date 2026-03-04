@@ -42,7 +42,6 @@ async def trigger_deployment(
     try:
         owner, repo = project.github_repo_name.split('/')
 
-        # Get branch info to get latest commit
         async with GitHubService._get_client() as client:
             response = await client.get(
                 f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/branches/{deploy_branch}",

@@ -127,7 +127,7 @@ class ProjectWithDeployments(ProjectResponse):
 
 # Deployment Schemas
 class DeploymentBase(BaseModel):
-    commit_sha: str = Field(..., max_length=100)  # Allow "manual" or full git SHA
+    commit_sha: str = Field(..., max_length=100)
     commit_message: Optional[str] = None
     commit_author: Optional[str] = None
     branch: str = Field(..., max_length=100)

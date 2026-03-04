@@ -2,8 +2,6 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-import httpx
-
 from ...database import get_db
 from ...models import User, Project
 from ...services.github import GitHubService
@@ -332,29 +330,22 @@ async def import_repository(
             from ...services.github_actions import trigger_build
 
             # Get latest commit info from GitHub
-            try:
-                branch_url = f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/branches/{repo_info['default_branch']}"
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        branch_url,
-                        headers={
-                            "Authorization": f"Bearer {current_user.github_access_token}",
-                            "Accept": "application/vnd.github.v3+json",
-                        }
-                    )
-                    response.raise_for_status()
-                    branch_data = response.json()
+            branch_url = f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}/branches/{repo_info['default_branch']}"
+            async with GitHubService._get_client() as client:
+                response = await client.get(
+                    branch_url,
+                    headers={
+                        "Authorization": f"Bearer {current_user.github_access_token}",
+                        "Accept": "application/vnd.github.v3+json",
+                    }
+                )
+                response.raise_for_status()
+                branch_data = response.json()
 
-                    latest_commit = branch_data['commit']
-                    commit_sha = latest_commit['sha']
-                    commit_message = latest_commit['commit']['message']
-                    commit_author = latest_commit['commit']['author']['name']
-
-            except Exception as e:
-                # Fallback to manual deployment
-                commit_sha = "initial"
-                commit_message = f"Initial deployment after import"
-                commit_author = current_user.github_username
+                latest_commit = branch_data['commit']
+                commit_sha = latest_commit['sha']
+                commit_message = latest_commit['commit']['message']
+                commit_author = latest_commit['commit']['author']['name']
 
             # Create deployment record
             deployment = Deployment(

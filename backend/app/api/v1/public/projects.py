@@ -94,7 +94,6 @@ async def create_project(
     from ....services.github_actions import trigger_build
     from ....api.v1.projects import generate_slug
     from ....config import get_settings
-    import httpx
     import secrets
 
     settings = get_settings()
@@ -266,28 +265,23 @@ async def create_project(
         from ....models import Deployment, DeploymentStatus
 
         # Get latest commit
-        try:
-            branch_url = (
-                f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}"
-                f"/branches/{repo_info['default_branch']}"
+        branch_url = (
+            f"{GitHubService.GITHUB_API_URL}/repos/{owner}/{repo}"
+            f"/branches/{repo_info['default_branch']}"
+        )
+        async with GitHubService._get_client() as client:
+            resp = await client.get(
+                branch_url,
+                headers={
+                    "Authorization": f"Bearer {current_user.github_access_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
             )
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    branch_url,
-                    headers={
-                        "Authorization": f"Bearer {current_user.github_access_token}",
-                        "Accept": "application/vnd.github.v3+json",
-                    },
-                )
-                resp.raise_for_status()
-                branch_data = resp.json()
-                commit_sha = branch_data["commit"]["sha"]
-                commit_message = branch_data["commit"]["commit"]["message"]
-                commit_author = branch_data["commit"]["commit"]["author"]["name"]
-        except Exception:
-            commit_sha = "initial"
-            commit_message = "Initial deployment after import"
-            commit_author = current_user.github_username
+            resp.raise_for_status()
+            branch_data = resp.json()
+            commit_sha = branch_data["commit"]["sha"]
+            commit_message = branch_data["commit"]["commit"]["message"]
+            commit_author = branch_data["commit"]["commit"]["author"]["name"]
 
         deployment = Deployment(
             project_id=project.id,
